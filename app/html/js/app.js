@@ -205,7 +205,7 @@ function coreSpec(i) {
 	if (view.cpu === 'load') return { axis: ax, fmt: x => fmtPct(x, 0), series: [L('Core busy', '#bdbdbd', p => coreBusy(p, i))] };
 	return { axis: ax, fmt: x => fmtPct(x, 0), series: [L('Apps', BRAND, p => coreApps(p, i), { back: true }), L('Camera, all', TOTAL, p => coreBusy(p, i))] };
 }
-/* A core tile's label: "Core 1 · 64 % · non-Axis 2 %" (and "Mostly system" for Kind of work), or "Core 1 · busy 64 %" for Load */
+/* A core tile's label: "Core 1 · 64 % · apps 2 %" (and "Mostly system" for Kind of work), or "Core 1 · busy 64 %" for Load */
 function coreLabel(i) {
 	const s = S.last || {}, b = coreBusy(s, i), a = coreApps(s, i);
 	if (view.cpu === 'load') return '<b>Core ' + (i + 1) + '</b> · busy ' + fmtPct(b, 0);
@@ -444,7 +444,7 @@ async function pollLive() {
 			if (!syncCores()) smp.forEach(s => G.cores.forEach((g, i) => g.push(liveVals(coreSpec(i), s), s.t)));
 			feedSparks(smp);
 			S.last = smp[smp.length - 1];
-			/* Each core tile says its current share above its box: "Core 1 · 54 % · non-Axis 2 %" */
+			/* Each core tile says its current share above its box: "Core 1 · 54 % · apps 2 %" */
 			drawCoreLabels();
 			S.recent = S.recent.concat(smp).slice(-60);
 			S.liveTops = (S.liveTops || []).concat(smp.filter(x => x.top).map(x => Object.assign({ t: x.t }, x.top))).filter(x => x.t > lastT - 120);
@@ -1338,7 +1338,7 @@ function drawProcs() {
 	$('#pr-sub').textContent = m.sub;
 	$('#pr-group').hidden = procMode === 'io';
 	$$('#pr-group button').forEach(b => b.classList.toggle('on', b.dataset.g === procGroup));
-	/* The split at the top: Non-Axis apps, Camera, Idle (CPU) or Video memory and Available (memory) */
+	/* The split at the top: Apps, Camera, Idle (CPU) or Video memory and Available (memory) */
 	const used = n.memTotalKb - n.memAvailKb, vid = n.videoUsedKb > 0 ? Math.min(n.videoUsedKb, Math.max(0, used - n.appsMemKb)) : 0;
 	$('#pr-split').innerHTML = procMode === 'cpu' ? compBar('Where the CPU goes', [['Apps', n.appsCpu, 'app'], ['Camera', Math.max(0, num(s.cpu) - num(n.appsCpu)), 'cam'], ['Idle', Math.max(0, 100 - num(s.cpu)), 'free']], v => fmtPct(v, 0))
 		: procMode === 'mem' ? compBar('Where the memory goes', [['Apps', n.appsMemKb, 'app'], ['Camera', Math.max(0, used - n.appsMemKb - vid), 'cam'], ['Video memory', vid, 'video'], ['Available', n.memAvailKb, 'free']], fmtKb) : '';
@@ -1347,7 +1347,7 @@ function drawProcs() {
 	let all = procRows();
 	const group = procGroup === 'app' && procMode !== 'io';
 	if (group) {
-		/* Group by app: each non-Axis app, and the camera with Axis's apps together */
+		/* Group by app: each installed app, and the camera */
 		const by = {};
 		all.forEach(p => { const k = ownApp(p.app) ? p.app : ''; by[k] = by[k] || { name: k ? appName(k) : 'Camera (AXIS OS and Axis apps)', app: k, v: 0, n: 0 }; by[k].v += p.v; by[k].n += p.count || 1; });
 		all = Object.values(by).sort((a, b) => b.v - a.v);
@@ -1369,7 +1369,7 @@ function drawProcs() {
 		'<td class="bar-col" data-l="' + esc(m.head) + '">' + cellMeter(p.v, mx, ownApp(p.app), m.fmt(p.v)) + '</td>' + (m.extra ? '<td class="num" data-l="' + esc(m.extra[0]) + '">' + esc(p.extra) + '</td>' : '') + '</tr>';
 	const sum = others.reduce((a, p) => a + p.v, 0);
 	const otherRow = others.length ? '<tr class="other" id="other-row" role="button" tabindex="0" aria-expanded="' + open + '" title="' + (open ? 'Hide' : 'Show') + ' every process in Other">' +
-		'<td data-l="Process"><span class="o-chev" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>Other (' + others.length + ' processes)</td><td data-l="Belongs to">' + (pWho === 'app' ? 'Apps' : 'Camera and non-Axis apps') + '</td>' +
+		'<td data-l="Process"><span class="o-chev" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>Other (' + others.length + ' processes)</td><td data-l="Belongs to">' + (pWho === 'app' ? 'Apps' : 'Camera and apps') + '</td>' +
 		'<td class="bar-col" data-l="' + esc(m.head) + '">' + cellMeter(sum, Math.max(mx, sum), false, m.fmt(sum)) + '</td>' + (m.extra ? '<td class="num o-cell"><span class="o-act">' + (open ? 'Hide' : 'Show all') + '</span></td>' : '') + '</tr>' : '';
 	$('#p-rows').innerHTML = list.length ? top.map(p => row(p)).join('') + otherRow + (open ? others.map(p => row(p, 1)).join('') : '')
 		: '<tr><td colspan="' + ncol + '" class="hint">' + (procMode === 'io' ? 'Nothing was found waiting on the disk in the last hour.' : 'No process matches.') + '</td></tr>';

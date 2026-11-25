@@ -43,7 +43,7 @@
 typedef struct { const char* key; const char* name; const char* unit; unsigned group; } Metric;
 static const Metric MET[] = {
 	{ "cpu",     "CPU busy",          "%",      G_CPU },
-	{ "apps",    "Non-Axis apps CPU", "%",      G_CPU },
+	{ "apps",    "Apps CPU", "%",      G_CPU },
 	{ "load",    "Load (1 min)",      "",       G_CPU },
 	{ "mem",     "Memory used",       "%",      G_MEM },
 	{ "storage", "Fullest drive",     "% full", G_STORAGE },

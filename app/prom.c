@@ -33,7 +33,7 @@ static void walk(const PromSnap* p, Walk* w) {
 		w->fam(w, "axis_rm_load", "gauge", "Load average: processes running or waiting.");
 		static const char* L[3] = { "1m", "5m", "15m" };
 		for (int i = 0; i < 3; i++) S(w, "axis_rm_load", "period", L[i], NULL, NULL, p->load[i]);
-		w->fam(w, "axis_rm_nonaxis_apps_cpu_percent", "gauge", "CPU used by apps not made by Axis, percent of all cores.");
+		w->fam(w, "axis_rm_nonaxis_apps_cpu_percent", "gauge", "CPU used by installed apps, percent of all cores.");
 		S(w, "axis_rm_nonaxis_apps_cpu_percent", NULL, NULL, NULL, NULL, p->apps);
 	}
 	if (p->send & PG_MEM) {
@@ -47,7 +47,7 @@ static void walk(const PromSnap* p, Walk* w) {
 		S(w, "axis_rm_memory_total_bytes", NULL, NULL, NULL, NULL, p->memTotal);
 		w->fam(w, "axis_rm_swap_bytes", "gauge", "Swap in use, bytes.");
 		S(w, "axis_rm_swap_bytes", NULL, NULL, NULL, NULL, p->swapUsed);
-		w->fam(w, "axis_rm_nonaxis_apps_memory_bytes", "gauge", "Memory used by apps not made by Axis, bytes.");
+		w->fam(w, "axis_rm_nonaxis_apps_memory_bytes", "gauge", "Memory used by installed apps, bytes.");
 		S(w, "axis_rm_nonaxis_apps_memory_bytes", NULL, NULL, NULL, NULL, p->appsMem);
 	}
 	if (p->send & PG_STORAGE) {
