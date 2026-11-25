@@ -192,9 +192,11 @@ static gchar* parse(const cJSON* in, Config* out, gboolean strict) {
 		if (!cJSON_IsBool(v)) return g_strdup("Prometheus page must be on (true) or off (false).");
 		c.prometheus = cJSON_IsTrue(v);
 	}
+	/* What this camera can do: checked only for a key that is given and changes (1.7.0), so a setting that no
+	 * longer fits (an SD card taken out) never blocks saving or importing something else */
 	if (strict) {
-		if (c.historyDays > 1 && !sampler_card_ok()) return g_strdup("Keeping 7 or 30 days needs an SD card this app can write to.");
-		if (c.powerSource == PS_CAMERA && sampler_power_log_known() == 0) return g_strdup("This camera keeps no power log of its own.");
+		if (cJSON_GetObjectItem(in, "historyDays") && c.historyDays != out->historyDays && c.historyDays > 1 && !sampler_card_ok()) return g_strdup("Keeping 7 or 30 days needs an SD card this app can write to.");
+		if (cJSON_GetObjectItem(in, "powerSource") && c.powerSource != out->powerSource && c.powerSource == PS_CAMERA && sampler_power_log_known() == 0) return g_strdup("This camera keeps no power log of its own.");
 	}
 	*out = c;
 	return NULL;
@@ -345,5 +347,46 @@ gchar* config_save(const cJSON* in, gchar** changes) {
 	if (s->len) *changes = g_string_free(s, FALSE);
 	else g_string_free(s, TRUE);
 	apply(&c);
+	return NULL;
+}
+
+/* 1.7.0 Copy settings to other cameras (cfgsections.c): the settings in two parts, passwords and token included.
+ * CFG_PART_MAIN: historyDays, powerSource, poePorts, collect, prometheus, tempUnit.
+ * CFG_PART_OUT:  mqtt and influx, without their CA certificates (each camera keeps its own). */
+static const char* const PART_MAIN[] = { "historyDays", "powerSource", "poePorts", "collect", "prometheus", "tempUnit", NULL };
+static const char* const PART_OUT[] = { "mqtt", "influx", NULL };
+
+/* Moves the part's keys from the full settings `from` into `to` (replacing what is there) */
+static void take_part(cJSON* to, cJSON* from, int part) {
+	const char* const* keys = part == CFG_PART_OUT ? PART_OUT : PART_MAIN;
+	for (int k = 0; keys[k]; k++) {
+		cJSON* v = cJSON_DetachItemFromObjectCaseSensitive(from, keys[k]);
+		if (!v) continue;
+		if (part == CFG_PART_OUT) cJSON_DeleteItemFromObjectCaseSensitive(v, "ca");
+		cJSON_DeleteItemFromObjectCaseSensitive(to, keys[k]);
+		cJSON_AddItemToObject(to, keys[k], v);
+	}
+}
+
+cJSON* config_part(int part) {
+	g_mutex_lock(&cfgMu);
+	Config c = cur;
+	g_mutex_unlock(&cfgMu);
+	cJSON* all = to_json(&c, TRUE);
+	cJSON* out = cJSON_CreateObject();
+	take_part(out, all, part);
+	cJSON_Delete(all);
+	return out;
+}
+
+gchar* config_part_check(cJSON* value, int part) {
+	g_mutex_lock(&cfgMu);
+	Config c = cur;
+	g_mutex_unlock(&cfgMu);
+	gchar* why = parse(value, &c, TRUE);                 /* the same check as config_save */
+	if (why) return why;
+	cJSON* all = to_json(&c, TRUE);
+	take_part(value, all, part);
+	cJSON_Delete(all);
 	return NULL;
 }

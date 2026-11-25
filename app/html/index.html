@@ -177,8 +177,8 @@
 	<section class="tab-page" id="tab-alerts" hidden>
 		<div class="acap-panel">
 			<!-- 1.6.1: one plain line per alert; Edit and + Add alert open a dialog -->
-			<!-- 1.6.3: Table | Workflow, and Export / Import alerts, as in Data Bender -->
-			<div class="acap-panel-head al-head al-head2"><h2>Alerts</h2><div class="seg" role="group" aria-label="View"><button type="button" class="on" id="al-view-table" aria-pressed="true">Table</button><button type="button" id="al-view-wf" aria-pressed="false">Workflow</button></div><span class="al-grow"></span><span class="set-msg" id="al-msg" role="status"></span><span class="admin-hint" hidden>Admin only: an administrator can add and change alerts.</span><button type="button" class="btn subtle" id="al-export" title="Save the saved alerts to a file, to load on other cameras">Export alerts</button><button type="button" class="btn subtle" id="al-import" title="Load alerts from a file exported by Resource Monitor">Import alerts</button><input type="file" id="al-import-file" accept=".json,application/json" hidden><button type="button" class="btn primary" id="al-add">+ Add alert</button></div>
+			<!-- 1.6.3: Table | Workflow, as in Data Bender (1.7.0: Export / Import moved to Settings › Copy settings to other cameras) -->
+			<div class="acap-panel-head al-head al-head2"><h2>Alerts</h2><div class="seg" role="group" aria-label="View"><button type="button" class="on" id="al-view-table" aria-pressed="true">Table</button><button type="button" id="al-view-wf" aria-pressed="false">Workflow</button></div><span class="al-grow"></span><span class="set-msg" id="al-msg" role="status"></span><span class="admin-hint" hidden>Admin only: an administrator can add and change alerts.</span><button type="button" class="btn primary" id="al-add">+ Add alert</button></div>
 			<p class="al-where">An alert is a reading past its limit for a while. It is sent as a camera event (for a VMS, or the camera's Events › Rules), or to MQTT, InfluxDB or Prometheus when those are on in Settings.</p>
 			<div id="al-wf-view" hidden>
 				<div class="wf-tools"><button type="button" class="btn" id="al-wf-run" aria-pressed="false">Show last trigger</button><button type="button" class="btn" id="al-wf-test">Test</button><button type="button" class="btn" id="al-wf-edit">Edit alert</button></div>
@@ -279,6 +279,17 @@
 			</table>
 			<p class="set-note set-foot">A metric that is neither shown nor sent is not read at all. Process names and connection addresses are never sent out.</p>
 		</div>
+		<!-- 1.7.0: this camera's settings to a file, and a file onto this camera (the UI kit's Copy settings pattern) -->
+		<div class="acap-panel set-panel kit-cfg" id="copy">
+			<div class="acap-panel-head"><h3 class="set-ph" id="cp-h">Copy settings to other cameras</h3></div>
+			<div class="cfg-row"><h4>Export</h4><div class="cfg-body"><div class="cfg-ticks" id="cp-ticks"></div><p class="hint small" id="cp-left"></p></div>
+				<div class="cfg-act"><button type="button" class="btn admin-only" id="cp-dl">Download</button></div></div>
+			<div class="cfg-row"><h4>Import</h4><div class="cfg-body"><p class="hint small">A file exported from Resource Monitor, on this or another camera. Alert files from the Alerts page of earlier versions load here too.</p></div>
+				<div class="cfg-act"><button type="button" class="btn admin-only" id="cp-pick">Choose file…</button><input type="file" id="cp-file" accept=".json,application/json" hidden></div></div>
+			<div class="cfg-row" id="cp-undo" hidden><h4>Undo</h4><div class="cfg-body"><p id="cp-undo-t"></p></div>
+				<div class="cfg-act"><button type="button" class="btn admin-only" id="cp-undo-b">Undo last import</button></div></div>
+			<p class="set-msg cfg-msg" id="cp-msg" role="status"></p>
+		</div>
 		<div class="acap-panel set-panel">
 			<div class="acap-panel-head"><h3 class="set-ph">Clear</h3></div>
 			<table class="acap-table set-rows"><colgroup><col class="c-set"><col></colgroup><tbody>
@@ -326,12 +337,19 @@
 		<div class="actions"><button type="button" class="btn subtle" id="ctx-clear">Clear context</button><span class="al-grow"></span><button type="button" class="btn" id="ctx-cancel">Cancel</button><button type="button" class="btn primary" id="ctx-done">Done</button></div>
 	</div>
 </div>
-<!-- 1.6.3 Import alerts: replace or add -->
-<div class="overlay" id="dlg-imp" hidden>
-	<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="imp-h" style="width:min(500px,100%)">
-		<h3 id="imp-h">Import alerts</h3>
-		<p id="imp-p"></p>
-		<div class="actions"><button type="button" class="btn" id="imp-cancel">Cancel</button><span class="al-grow"></span><button type="button" class="btn" id="imp-add">Add to these alerts</button><button type="button" class="btn primary" id="imp-replace">Replace these alerts</button></div>
+<!-- 1.7.0 Import settings: the file, its sections, Replace or Merge, a preview from the camera, then Apply -->
+<div class="overlay" id="dlg-cfg" hidden>
+	<div class="dialog cfg-dlg" role="dialog" aria-modal="true" aria-labelledby="cp-dh">
+		<h3 id="cp-dh">Import settings</h3>
+		<div class="cfg-facts" id="cp-facts"></div>
+		<div class="cfg-sec">Sections</div>
+		<div class="cfg-ticks" id="cp-secs"></div>
+		<p class="hint small" id="cp-extra" hidden></p>
+		<div class="cfg-sec"><span id="cp-mode-h">Replace or Merge</span></div>
+		<div class="seg" id="cp-mode" role="group" aria-label="Replace or Merge"><button type="button" data-v="replace" class="on" aria-pressed="true">Replace</button><button type="button" data-v="merge" aria-pressed="false">Merge</button></div>
+		<p class="hint small" id="cp-dirty" hidden>The changes not saved on this page are dropped when the import is applied.</p>
+		<div class="cfg-prev" id="cp-prev" aria-live="polite"></div>
+		<div class="actions"><button type="button" class="btn" id="cp-cancel">Cancel</button><span class="al-grow"></span><button type="button" class="btn" id="cp-preview">Preview</button><button type="button" class="btn primary" id="cp-apply" disabled>Apply</button></div>
 	</div>
 </div>
 <!-- Ask first: Stop / Start / Restart, and Clear log -->

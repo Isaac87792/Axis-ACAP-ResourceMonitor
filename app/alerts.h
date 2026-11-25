@@ -20,4 +20,11 @@ gchar* alerts_act(const char* id, const char* action, const char* who);
 char*  alerts_prom(void);
 /* 1.6.3: what an alert's Context would send now (the Context editor's preview) */
 cJSON* alerts_preview(const cJSON* in);
+/* 1.7.0 Copy settings to other cameras (cfgsections.c) */
+cJSON* alerts_saved(void);                           /* the list as saved, ids included, no status (to delete) */
+int    alerts_metric_known(const char* key);         /* 1 when key is a metric an alert can watch */
+#define ALERTS_MAX 20
+/* Checks a list as alerts_save would and rewrites it as it would be saved. Items without an id get one.
+ * NULL when it may be saved, else why not (to free). Save it with alerts_save. */
+gchar* alerts_normalize(cJSON* list);
 #endif

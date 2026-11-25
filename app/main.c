@@ -27,6 +27,8 @@
 #include "config.h"
 #include "sendout.h"
 #include "alerts.h"
+#include "kit.h"
+#include "cfgsections.h"
 
 #define APP_PACKAGE "resource_monitor"
 #define LOG_MAX     100
@@ -55,6 +57,14 @@ static void log_add(const char* app, const char* what, const char* who) {
 	while (cJSON_GetArraySize(logLines) > LOG_MAX) cJSON_DeleteItemFromArray(logLines, LOG_MAX);
 	ACAP_FILE_Write(LOG_FILE, logLines);
 	g_mutex_unlock(&logLock);
+}
+
+/* 1.7.0: kit_configio.c (Copy settings to other cameras) writes one line per import and undo here, never values */
+void kit_log(const char* item, const char* what, const char* detail, const char* who) {
+	(void)item;
+	gchar* line = detail && *detail ? g_strdup_printf("%s: %s", what ? what : "", detail) : g_strdup(what ? what : "");
+	log_add("Resource Monitor", line, who);
+	g_free(line);
 }
 
 /*-----------------------------------------------------
@@ -95,7 +105,6 @@ static gboolean poll_apps(gpointer user_data) {
 	char* xml = ACAP_VAPIX_Get("applications/list.cgi");
 	if (!xml) return G_SOURCE_CONTINUE;
 	cJSON* list = cJSON_CreateArray();
-	GPtrArray* axisIds = g_ptr_array_new_with_free_func(g_free);
 	for (const char* p = strstr(xml, "<application "); p; p = strstr(p + 1, "<application ")) {
 		const char* end = strchr(p, '>');
 		if (!end) break;
@@ -109,8 +118,7 @@ static gboolean poll_apps(gpointer user_data) {
 		cJSON_AddStringToObject(a, "name", *nice ? nice : id);
 		cJSON_AddStringToObject(a, "vendor", vendor);
 		gboolean axis = is_axis_vendor(vendor);
-		cJSON_AddBoolToObject(a, "axis", axis);              /* made by Axis: part of the camera, not an app you installed */
-		/* 1.6.1: Axis-made apps count as Apps too, so none is added to axisIds */
+		cJSON_AddBoolToObject(a, "axis", axis);              /* made by Axis (shown as a tag); it still counts as an app */
 		cJSON_AddStringToObject(a, "version", version);
 		cJSON_AddStringToObject(a, "status", st);
 		cJSON_AddItemToArray(list, a);
@@ -128,7 +136,6 @@ static gboolean poll_apps(gpointer user_data) {
 		g_free(id); g_free(nice); g_free(vendor); g_free(version); g_free(st);
 	}
 	free(xml);
-	sampler_set_axis_apps(axisIds);                      /* 1.6.1: empty, so every installed app counts as Apps */
 	g_mutex_lock(&appsLock);
 	if (apps) cJSON_Delete(apps);
 	apps = list;
@@ -565,6 +572,8 @@ int main(void) {
 	ACAP_HTTP_Node("alertact", HTTP_alertact);
 	ACAP_HTTP_Node("alertpreview", HTTP_alertpreview);
 	alerts_init(sampler_set_need);
+	kit_configio_init(APP_PACKAGE, "Resource Monitor");  /* 1.7.0: the configio endpoint, and its three sections */
+	cfgsections_init();
 	{
 		cJSON* dev = ACAP_Get_Config("device");
 		cJSON* man = ACAP_Get_Config("manifest");

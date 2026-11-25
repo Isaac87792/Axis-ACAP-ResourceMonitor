@@ -583,7 +583,7 @@ char* ACAP_HTTP_Request_Param(const ACAP_HTTP_Request request, const char* name)
             }
 
             start += strlen(search_param);
-            char* end = strchr(start, '&');
+            const char* end = strchr(start, '&');
             size_t len = end ? (size_t)(end - start) : strlen(start);
 
             char* encoded = malloc(len + 1);
@@ -941,11 +941,11 @@ static char* ExtractValue(const char* xml, const char* tag) {
     snprintf(startTag, sizeof(startTag), "<%s>", tag);
     snprintf(endTag, sizeof(endTag), "</%s>", tag);
 
-    char* start = strstr(xml, startTag);
+    const char* start = strstr(xml, startTag);
     if (!start) return NULL;
     start += strlen(startTag);
 
-    char* end = strstr(start, endTag);
+    const char* end = strstr(start, endTag);
     if (!end) return NULL;
 
     size_t valueLength = end - start;

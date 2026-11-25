@@ -549,7 +549,6 @@ table.d-top td.bar-col .meter { flex: 1; width: auto; }
 .ctx-line code { flex: 1 1 200px; min-width: 0; background: var(--bg-input); border: 1px solid var(--stroke-soft); border-radius: var(--radius); padding: 5px 10px; font: 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-line code.none, .wf-props code.none { color: var(--text-4); font-family: var(--font); }
 #dlg-ctx { z-index: 55; }
-#dlg-imp { z-index: 55; }
 .ctx-dlg { width: 640px; }
 .ctx-dlg textarea { display: block; width: 100%; min-height: 64px; box-sizing: border-box; background: var(--bg-input); color: var(--text); border: 1px solid var(--stroke-soft); border-radius: var(--radius); padding: 6px 8px; font: 13px var(--font-mono); resize: vertical; }
 .ctx-l { display: flex; align-items: center; color: var(--text-3); font-size: 12.5px; margin: 12px 0 5px; }
@@ -561,7 +560,37 @@ table.d-top td.bar-col .meter { flex: 1; width: auto; }
 .ctx-ctr input, .ctx-ctr select { width: 100%; box-sizing: border-box; }
 .preview { background: var(--bg-input); border-radius: var(--radius); padding: 10px 12px; font: 13px var(--font-mono); overflow-wrap: anywhere; margin-top: 12px; }
 .preview small { display: block; color: var(--text-3); font: 12px var(--font); margin-bottom: 4px; }
-.ctx-dlg .actions, #dlg-imp .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctx-dlg .actions, .cfg-dlg .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* 1.7.0 Copy settings to other cameras (the UI kit's configio panel, in this page's style) */
+.kit-cfg .cfg-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 6px 16px; align-items: start; padding: 10px 0; border-top: 1px solid var(--stroke-soft); }
+.kit-cfg .cfg-row[hidden] { display: none; }
+.kit-cfg .cfg-row h4 { margin: 6px 0 0; font-size: 14px; font-weight: 600; color: var(--text-2); }
+.kit-cfg .cfg-body { min-width: 0; }
+.kit-cfg .cfg-body p { margin: 6px 0 0; }
+.kit-cfg .cfg-act { display: flex; gap: 6px; flex-wrap: wrap; }
+.kit-cfg .cfg-msg { display: block; margin: 4px 0 0; min-height: 0; }
+.kit-cfg .cfg-msg:empty { display: none; }
+.kit-cfg .cfg-msg.bad { color: var(--danger); }
+.cfg-ticks { display: flex; flex-wrap: wrap; gap: 2px 20px; }
+.cfg-tick { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; cursor: pointer; overflow-wrap: anywhere; }
+.cfg-tick input { accent-color: var(--brand); width: 16px; height: 16px; margin: 0; flex: none; }
+.cfg-tick .n { color: var(--text-3); font-size: 12px; border: 1px solid var(--stroke-soft); border-radius: 10px; padding: 0 7px; line-height: 18px; }
+#dlg-cfg { z-index: 55; }
+.cfg-dlg { width: 560px; }
+.cfg-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 16px; font-size: 13px; margin-top: 12px; }
+.cfg-facts b { color: var(--text-3); font-weight: 400; }
+.cfg-facts span { overflow-wrap: anywhere; }
+.cfg-dlg .cfg-sec { font-weight: 600; color: var(--brand); font-size: 13px; margin: 14px 0 6px; border-bottom: 1px solid var(--stroke-soft); padding-bottom: 3px; display: flex; align-items: center; }
+.cfg-dlg .hint.small { margin: 6px 0 0; }
+.cfg-prev:empty { display: none; }
+.cfg-prev { margin-top: 14px; background: var(--bg-header); border-radius: var(--radius); padding: 8px 12px; font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.cfg-prev ul { margin: 0; padding-left: 18px; }
+.cfg-prev ul ul { color: var(--text-3); }
+.cfg-prev b { color: var(--text); }
+.cfg-prev p { margin: 0 0 6px; color: var(--text-2); }
+.cfg-prev .cfg-err, .cfg-err { color: var(--danger); }
+@media (max-width: 900px) { .kit-cfg .cfg-row { grid-template-columns: minmax(0, 1fr); } }
 
 /* Workflow, as in Data Bender */
 .wf-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }

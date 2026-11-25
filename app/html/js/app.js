@@ -1664,7 +1664,7 @@ function initAlerts() {
 	/* Esc closes the top dialog only: the Context editor sits over Edit alert */
 	document.addEventListener('keydown', e => {
 		if (e.key !== 'Escape') return;
-		if (!$('#dlg-ctx').hidden) ctxClose(false); else if (!$('#dlg-imp').hidden) impClose(); else alClose();
+		if (!$('#dlg-ctx').hidden) ctxClose(false); else if (!$('#dlg-cfg').hidden) cpClose(); else alClose();
 	});
 	initAlerts163();
 	$('#ae-metric').onchange = () => { $('#ae-unit').textContent = alMetric($('#ae-metric').value).unit; alNowHint(); };
@@ -1806,7 +1806,7 @@ function drawAlertLog(toEnd) {
 	if (atEnd) body.scrollTop = body.scrollHeight;
 }
 
-/*---------------------------------------------------- 1.6.3 Alerts: Context editor, Workflow view, Export / Import (as in Data Bender) */
+/*---------------------------------------------------- 1.6.3 Alerts: Context editor, Workflow view (as in Data Bender) */
 const CTX_TOKENS = ['{value}', '{limit}', '{unit}', '{reading}', '{alert}', '{state}', '{for}', '{count}', '{time}', '{date}', '{camera}', '{serial}', '{ip}',
 	'{round(value, 1)}', '{pad(count, 4)}', '{upper(alert)}', '{if(value > 95, "critical", "high")}', '{if(state == "On", "ALARM", "clear")}'];
 const AL_HELP = {
@@ -1818,13 +1818,6 @@ const AL_HELP = {
 function initAlerts163() {
 	$('#al-view-table').onclick = () => setAlView('table');
 	$('#al-view-wf').onclick = () => setAlView('wf');
-	$('#al-export').onclick = exportAlerts;
-	$('#al-import').onclick = () => { $('#al-import-file').value = ''; $('#al-import-file').click(); };
-	$('#al-import-file').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) importAlerts(f); };
-	$('#imp-cancel').onclick = impClose;
-	$('#imp-add').onclick = () => applyImport(false);
-	$('#imp-replace').onclick = () => applyImport(true);
-	$('#dlg-imp').onclick = e => { if (e.target.id === 'dlg-imp') impClose(); };
 	/* Context editor */
 	$('#ae-ctx-edit').onclick = ctxOpen;
 	$('#ctx-tokens').innerHTML = CTX_TOKENS.map(t => '<button type="button" class="token">' + esc(t) + '</button>').join('');
@@ -1993,7 +1986,6 @@ function alWfProps(a) {
 function drawAlWf() {
 	if (!AL.data) return;
 	const admin = isAdmin();
-	$('#al-import').hidden = !admin;
 	const wf = AL.view === 'wf', list = AL.data.alerts;
 	$('#al-wf-view').hidden = !wf;
 	if (!wf) return;
@@ -2019,48 +2011,200 @@ function drawAlWf() {
 	$('#al-wf-note').textContent = !AL.wfRun ? '' : last ? 'Last On ' + hhmm(last.line.t, 1) + ': ' + last.line.what + (last.off ? '; it has turned Off since.' : '; still On.') + ' ✓ reached, faded = not reached.' : 'This alert has not turned On in its log yet.';
 }
 
-/* Export / Import alerts: copy one camera's alerts to others */
-function exportAlerts() {
-	const l = (AL.data && AL.data.alerts) || [];
-	if (!l.length) { $('#al-msg').textContent = 'There are no alerts to export.'; return; }
-	const out = { app: 'resource_monitor', format: 1, exported: new Date().toISOString(), alerts: l.map(a => { const o = alOut(a); delete o.id; return o; }) };
-	const d = new Date(), p = n => (n < 10 ? '0' : '') + n;
-	const name = 'Resource Monitor alerts ' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '.json';
-	const link = document.createElement('a');
-	link.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
-	link.download = name;
-	document.body.appendChild(link);
-	link.click();
-	setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 1000);
-	$('#al-msg').textContent = 'Exported ' + l.length + ' alert' + (l.length === 1 ? '' : 's') + '.';
+/*---------------------------------------------------- 1.7.0 Copy settings to other cameras (Settings tab; the UI kit's configio pattern)
+ * Export: tick sections (each list with its count), Download. Import: Choose file -> a dialog with the file's app,
+ * version, model and date; tick sections; Replace (default) or Merge; Preview = a dry run on the camera; Apply.
+ * Undo last import, when there is one. The camera does every check (kit_configio.c, cfgsections.c): it holds an import
+ * to exactly what the Settings and Alerts pages are held to; the page only shows what it says.
+ * Old alert files (format 1, from the Alerts page of earlier versions) load here as the Alerts section. */
+const CP = { S: null, file: null, text: null, mode: 'replace', busy: false, back: null, req: 0 };   /* req: changes with every change in the dialog */
+const CP_MAX = 256 * 1024;
+const CP_HELP = 'Export saves the ticked sections to a file. Import loads that file on another camera: Replace makes each ticked section exactly the file\'s; Merge adds the file\'s alerts and changes those with the same name, removes nothing, and changes settings only where the file has them.\n' +
+	'Preview shows what would change; nothing is saved until Apply.\n' +
+	'The MQTT and InfluxDB passwords and the InfluxDB token are never in the file, and CA certificates stay on each camera: the other camera keeps its own. The camera\'s name, address, logs, alert counters and history are never in the file either.\n' +
+	'Undo last import puts the sections back as they were before the last import.';
+async function cpPost(url, body) {
+	const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body });
+	let a = null;
+	try { a = await r.json(); } catch (e) { /* not JSON */ }
+	if (!a) throw new Error(r.status + ' ' + r.statusText);
+	a.status = r.status;   /* 400: refused, nothing written; 500: the camera could not save (the answer says what is left) */
+	return a;   /* {ok:false, error} is an answer, not a throw */
 }
-function importAlerts(file) {
-	const rd = new FileReader();
-	rd.onload = () => {
-		let j = null;
-		try { j = JSON.parse(rd.result); } catch (e) { /* not JSON */ }
-		const list = j && j.app === 'resource_monitor' && Array.isArray(j.alerts) ? j.alerts : null;
-		const keys = ((AL.data && AL.data.metrics) || []).map(m => m.key);
-		const clean = (list || []).filter(a => a && typeof a === 'object' && typeof a.name === 'string' && keys.indexOf(a.metric) >= 0)
-			.map(a => { const c = JSON.parse(JSON.stringify(a)); delete c.id; delete c.status; return c; });
-		if (!clean.length) { $('#al-msg').textContent = 'That file has no Resource Monitor alerts.'; return; }
-		const have = AL.data.alerts.length;
-		if (!have) { AL.imp = clean; applyImport(true); return; }
-		AL.imp = clean;
-		$('#imp-p').textContent = 'The file has ' + clean.length + ' alert' + (clean.length === 1 ? '' : 's') + '. This camera has ' + have + '. Replace them, or add the file\'s alerts to them? It is saved at once.';
-		$('#dlg-imp').hidden = false;
-		$('#imp-add').focus();
-	};
-	rd.readAsText(file);
+const cpSecName = id => { const s = CP.S && CP.S.sections.find(x => x.id === id); return s ? s.name : id; };
+function cpMsg(text, bad) { const m = $('#cp-msg'); m.textContent = text || ''; m.classList.toggle('bad', !!bad); }
+async function cpRefresh() {
+	try { CP.S = await getJSON('configio?action=sections'); }
+	catch (e) {
+		CP.S = null;
+		$('#cp-ticks').innerHTML = '<span class="hint">' + (/^40[13]/.test(e.message) ? 'Admin only: an administrator can copy settings.' : 'Could not read the sections: ' + esc(e.message)) + '</span>';
+		$('#cp-left').textContent = ''; $('#cp-undo').hidden = true;
+		$('#cp-dl').disabled = $('#cp-pick').disabled = true;
+		return;
+	}
+	const list = CP.S.sections || [];
+	const was = $$('#cp-ticks input').reduce((m, i) => (m[i.value] = i.checked, m), {});
+	$('#cp-ticks').innerHTML = list.map(s => '<label class="cfg-tick"><input type="checkbox" value="' + esc(s.id) + '"' + (was[s.id] === false ? '' : ' checked') + '>' +
+		esc(s.name) + (s.list ? ' <span class="n">' + esc(s.count) + '</span>' : '') + '</label>').join('');
+	$('#cp-left').textContent = 'Passwords and the InfluxDB token are never in the file, and CA certificates stay on each camera: the other camera keeps its own.';
+	$('#cp-pick').disabled = !list.length || !isAdmin();
+	cpTicked();
+	const u = CP.S.undo || {};
+	$('#cp-undo').hidden = !u.available;
+	if (u.available) {
+		const t = u.time ? new Date(u.time) : null;
+		$('#cp-undo-t').textContent = 'Last import: ' + (t && !isNaN(t) ? t.toLocaleString() : 'time unknown') + ', ' + (u.mode === 'merge' ? 'Merge' : 'Replace') + ', ' + (u.sections || []).map(cpSecName).join(', ') + '.';
+	}
+	$('#cp-undo-b').disabled = !isAdmin();
 }
-function impClose() { $('#dlg-imp').hidden = true; AL.imp = null; }
-async function applyImport(replace) {
-	const clean = AL.imp;
-	impClose();
-	if (!clean) return;
-	const list = replace ? clean : AL.data.alerts.concat(clean);
-	if (list.length > 20) { $('#al-msg').textContent = 'Not imported: this camera can have 20 alerts (that would make ' + list.length + ').'; return; }
-	await saveAlerts(list, 'Imported ' + clean.length + ' alert' + (clean.length === 1 ? '' : 's') + '.');
+function cpTicked() { $('#cp-dl').disabled = !isAdmin() || !$$('#cp-ticks input:checked').length; }
+async function cpExport() {
+	const ids = $$('#cp-ticks input:checked').map(i => i.value);
+	try {
+		const f = await getJSON('configio?action=export&sections=' + encodeURIComponent(ids.join(',')));
+		const d = new Date(), p = n => (n < 10 ? '0' : '') + n;
+		const model = String(f.fromModel || 'camera').replace(/[^A-Za-z0-9-]+/g, '-');
+		const link = document.createElement('a');
+		link.href = URL.createObjectURL(new Blob([JSON.stringify(f, null, 2)], { type: 'application/json' }));
+		link.download = 'resource-monitor-settings-' + model + '-' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '.json';
+		document.body.appendChild(link);
+		link.click();
+		setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 1000);
+		cpMsg('Downloaded: ' + ids.map(cpSecName).join(', ') + '.' + (f.omitted && f.omitted.length ? ' Left out: ' + f.omitted.length + ' password' + (f.omitted.length === 1 ? '' : 's') + ' or token' + (f.omitted.length === 1 ? '' : 's') + '.' : ''));
+	} catch (e) { cpMsg('Could not export: ' + e.message, true); }
+}
+async function cpFile(f) {
+	if (!f || !CP.S) return;
+	if (f.size > CP_MAX) { cpMsg('The file is too big: the limit is 256 KB.', true); return; }
+	const text = await f.text();
+	let j = null;
+	try { j = JSON.parse(text); } catch (e) { /* said below */ }
+	if (!j || typeof j !== 'object' || Array.isArray(j)) { cpMsg('That is not a settings file: it is not JSON. Choose a file exported from Resource Monitor.', true); return; }
+	if (j.app !== CP.S.app) { cpMsg(j.app ? 'This file is for another app (' + String(j.app).slice(0, 40) + '), not Resource Monitor. Export the file from Resource Monitor on the other camera.' : 'That is not a settings file: it does not say which app it is for.', true); return; }
+	if (+j.format > CP.S.format) { cpMsg('This file is from a newer version of Resource Monitor: update the app first.', true); return; }
+	cpMsg('');
+	cpOpen(j, text);
+}
+/* The import dialog: the file's facts, its sections, Replace or Merge, Preview, Apply */
+function cpOpen(j, text) {
+	CP.file = j; CP.text = text;
+	const old = !(j.format >= 2);
+	const secs = old ? {} : (j.sections && typeof j.sections === 'object' ? j.sections : {});
+	if (old) CP.S.sections.forEach(s => { if (s.list && Array.isArray(j[s.id])) secs[s.id] = j[s.id]; });
+	const known = CP.S.sections.filter(s => secs[s.id] !== undefined);
+	const unknown = Object.keys(secs).filter(k => !CP.S.sections.some(s => s.id === k));
+	const when = j.exported ? new Date(j.exported) : null;
+	const fact = (k, v) => '<b>' + esc(k) + '</b><span>' + esc(v || '–') + '</span>';
+	$('#cp-facts').innerHTML = fact('App', 'Resource Monitor' + (old ? ' (an older alerts file)' : '')) + fact('Version', j.appVersion) + fact('Camera model', j.fromModel) +
+		fact('Exported', when && !isNaN(when) ? when.toLocaleString() : '');
+	$('#cp-secs').innerHTML = known.length ? known.map(s => '<label class="cfg-tick"><input type="checkbox" value="' + esc(s.id) + '" checked>' + esc(s.name) +
+		(Array.isArray(secs[s.id]) ? ' <span class="n">' + secs[s.id].length + '</span>' : '') + '</label>').join('') : '<p class="cfg-err">The file has none of the sections Resource Monitor uses.</p>';
+	const extra = [];
+	if (unknown.length) extra.push('Not used here: ' + unknown.join(', ') + '.');
+	if (Array.isArray(j.omitted) && j.omitted.length) extra.push('Not in the file: ' + j.omitted.join(', ') + '. This camera keeps its own.');
+	$('#cp-extra').textContent = extra.join(' ');
+	$('#cp-extra').hidden = !extra.length;
+	$('#cp-dirty').hidden = !settingsDirty();
+	cpSetMode('replace');
+	CP.back = document.activeElement;
+	$('#dlg-cfg').hidden = false;
+	const first = $('#cp-secs input');
+	(first || $('#cp-cancel')).focus();
+}
+function cpClose() {
+	$('#dlg-cfg').hidden = true;
+	CP.file = CP.text = null;
+	if (CP.back && CP.back.focus && document.contains(CP.back)) CP.back.focus();
+}
+const cpChosen = () => $$('#cp-secs input:checked').map(i => i.value);
+function cpSetMode(m) {
+	CP.mode = m === 'merge' ? 'merge' : 'replace';
+	$$('#cp-mode button').forEach(b => { const on = b.dataset.v === CP.mode; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+	cpStale();
+}
+/* Anything changed in the dialog: the preview no longer holds, so Apply waits for a new one */
+function cpStale() { CP.req++; $('#cp-prev').innerHTML = ''; $('#cp-apply').disabled = true; $('#cp-preview').disabled = CP.busy || !cpChosen().length; }
+function cpShow(r) {
+	const list = (r.sections || []).map(s => '<li><b>' + esc(s.name) + ':</b> ' + esc(s.added) + ' added, ' + esc(s.changed) + ' changed, ' + esc(s.removed) + ' removed, ' + esc(s.unchanged) + ' unchanged' +
+		((s.notes || []).length ? '<ul>' + s.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') + '</li>').join('');
+	/* Only a refusal (400) is sure to have changed nothing; a failed save (500) says itself what is left */
+	const sure = r.status === 400 && !/nothing/i.test(r.error || '');
+	$('#cp-prev').innerHTML = (r.ok ? (r.dry ? '<p>Nothing is saved yet. Apply saves this:</p>' : '') : '<p class="cfg-err">' + esc(r.error || 'Refused.') + (sure ? ' Nothing was changed.' : '') + '</p>') + (list ? '<ul>' + list + '</ul>' : '') +
+		((r.notes || []).length ? '<ul class="hint small">' + r.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '');
+}
+/* While the camera answers, the sections and the mode stay as they were sent */
+function cpLock(on) { $$('#cp-mode button, #cp-secs input').forEach(x => { x.disabled = on; }); }
+/* One request at a time; the mode and ticks are locked meanwhile. null: the answer is to older choices (the sections
+ * or the mode changed since, or the dialog was closed), so it does not count */
+async function cpSend(dry) {
+	const my = ++CP.req;
+	CP.busy = true;
+	cpLock(true);
+	$('#cp-preview').disabled = $('#cp-apply').disabled = true;
+	if (dry) $('#cp-prev').innerHTML = '<p>Checking on the camera…</p>';
+	let r;
+	try {
+		r = await cpPost('configio?action=import&mode=' + CP.mode + '&sections=' + encodeURIComponent(cpChosen().join(',')) + (dry ? '&dry=1' : ''), CP.text);
+	} catch (e) { r = { ok: false, error: 'The camera did not answer: ' + e.message + (dry ? '' : '. Check the settings before trying again.') }; }
+	finally { CP.busy = false; cpLock(false); $('#cp-preview').disabled = !cpChosen().length; }
+	return my === CP.req && CP.text ? r : null;
+}
+async function cpPreview() {
+	const r = await cpSend(true);
+	if (!r) return;
+	cpShow(r);
+	$('#cp-apply').disabled = !r.ok;
+	if (r.ok) $('#cp-apply').focus();
+}
+async function cpApply() {
+	const r = await cpSend(false);
+	if (!r) { cpAfter(); return; }                            /* closed meanwhile: the camera may have changed */
+	if (!r.ok) {
+		/* The camera's own words, and the page reads the camera again: a failed save may have left an undo copy
+		 * (the put-back failed too), and the Undo row must show it */
+		cpShow(r);
+		cpAfter();
+		return;
+	}
+	cpClose();
+	cpMsg('Imported: ' + (r.sections || []).map(s => s.name).join(', ') + '. Undo last import puts them back.');
+	cpAfter();
+}
+/* The camera changed: read its settings and alerts again */
+function cpAfter() { cpRefresh(); loadSettings(); pollAlerts(); pollLog(); }
+function cpUndo() {
+	const u = (CP.S && CP.S.undo) || {};
+	ask('Undo the last import?', (u.sections || []).map(cpSecName).join(', ') + ': back to how they were before the import. Changes made to them since then are lost.', 'Undo import', async () => {
+		try {
+			const a = await cpPost('configio?action=undo', '{}');
+			if (!a.ok) throw new Error(a.error || 'Refused.');
+			cpMsg('Import undone: ' + (a.sections || []).map(s => s.name).join(', ') + ' put back.');
+			cpAfter();
+		} catch (e) { cpMsg('Could not undo: ' + e.message, true); cpRefresh(); }
+	}, true);
+}
+function initCopy() {
+	Help.add($('#cp-h'), 'Copy settings to other cameras', CP_HELP);
+	Help.add($('#cp-mode-h'), 'Replace or Merge', 'Replace: each ticked section becomes exactly the file\'s.\nMerge: the file\'s alerts are added, and alerts with the same name are changed; nothing is removed. Settings change only where the file has them.\nTwo alerts with the same name: Replace keeps both; Merge can\'t tell them apart and refuses the file.\nPasswords and the token this camera has are kept either way.');
+	$('#cp-ticks').addEventListener('change', cpTicked);
+	$('#cp-dl').onclick = cpExport;
+	$('#cp-pick').onclick = () => { $('#cp-file').value = ''; $('#cp-file').click(); };
+	$('#cp-file').onchange = e => cpFile(e.target.files && e.target.files[0]);
+	$('#cp-undo-b').onclick = cpUndo;
+	$('#cp-secs').addEventListener('change', cpStale);
+	$('#cp-mode').onclick = e => { const b = e.target.closest('button[data-v]'); if (b) cpSetMode(b.dataset.v); };
+	$('#cp-cancel').onclick = cpClose;
+	$('#cp-preview').onclick = cpPreview;
+	$('#cp-apply').onclick = cpApply;
+	$('#dlg-cfg').onclick = e => { if (e.target.id === 'dlg-cfg') cpClose(); };
+	/* Focus stays inside the dialog */
+	$('#dlg-cfg').addEventListener('keydown', e => {
+		if (e.key !== 'Tab') return;
+		const f = $$('#dlg-cfg button:not(:disabled), #dlg-cfg input:not(:disabled)').filter(x => x.offsetParent);
+		if (!f.length) return;
+		if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+		else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+	});
 }
 
 /*---------------------------------------------------- 1.6.3 Help (i): a short explanation one click away (the same part as the UI kit's Kit.help) */
@@ -2184,7 +2328,7 @@ function showTab(t) {
 	if (t === 'drives') drawDrives();
 	if (t === 'conns') drawConns();
 	if (t === 'alerts') pollAlerts();
-	if (t === 'settings') { loadSettings(); outTimer = setTimeout(pollOutStatus, 5000); }
+	if (t === 'settings') { loadSettings(); outTimer = setTimeout(pollOutStatus, 5000); cpRefresh(); }
 	if (t === 'perf' && sel === 'power' && !setData) loadSettings();   /* the PoE ports Settings picked */
 	drawBar();
 }
@@ -2215,7 +2359,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	$('#clear-filters').onclick = () => { ['#f-time', '#f-what', '#f-who'].forEach(s => { $(s).value = ''; }); $('#f-app').value = ''; drawLog(); };
 	$('#export-log').onclick = exportLog;
 	/* Settings: any change marks the form; Save saves at once, Cancel puts back what is saved */
-	$('#tab-settings').addEventListener('change', e => { if (e.target.matches('select, input')) { readForm(); $('#s-msg').textContent = ''; drawSettings(); } });
+	$('#tab-settings').addEventListener('change', e => { if (e.target.matches('select, input') && !e.target.closest('#copy')) { readForm(); $('#s-msg').textContent = ''; drawSettings(); } });
 	/* 1.6.1: typing marks the page changed at once, so the Save bar comes up without leaving the field */
 	$('#tab-settings').addEventListener('input', e => { if (e.target.matches('input[type=text], input[type=number], input[type=password], textarea')) { readForm(); $('#s-msg').textContent = ''; setDirty(); } });
 	$('#s-save').onclick = saveSettings;
@@ -2255,6 +2399,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	pollCamera();
 	helpify();
 	initAlerts();
+	initCopy();
 	fromHash();
 	pollLive();
 	setInterval(checkStale, 1000);

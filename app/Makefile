@@ -1,5 +1,5 @@
 PROG1	= resource_monitor
-OBJS1	= main.c sampler.c store.c config.c prom.c sendout.c netconn.c alerts.c context.c ACAP.c cJSON.c
+OBJS1	= main.c sampler.c store.c config.c prom.c sendout.c netconn.c alerts.c context.c cfgsections.c kit_configio.c ACAP.c cJSON.c
 PROGS	= $(PROG1)
 
 PKGS = glib-2.0 gio-2.0 axevent axparameter fcgi libcurl
@@ -15,4 +15,4 @@ $(PROG1): $(OBJS1)
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 clean:
-	rm -rf $(PROGS) *.o $(LIBDIR) *.eap* *_LICENSE.txt manifest.json package.conf* param.conf
+	rm -rf $(PROGS) *.o $(LIBDIR) *.eap* *_LICENSE.txt manifest.json

@@ -88,7 +88,7 @@ typedef struct {
 	gint64 tms;
 	float cpu, apps, mem, flash, sd, tx, rx, temp;
 	float cores[MAX_CORES];
-	float coresApps[MAX_CORES];                 /* apps you installed, per core (from the last process scan) */
+	float coresApps[MAX_CORES];                 /* installed apps, per core (from the last process scan) */
 	float meCpu, meMemKb;
 	float x[X_N];                               /* the 1.1 readings (X_...) */
 	float iops[MAX_DSK];                        /* reads and writes a second, per device (live only) */
@@ -185,7 +185,7 @@ static int tickN = 0;
 /* 1.1 history: X_N 16-bit floats per point, beside `hist`; the point being built in curX (lock held) */
 static guint16* histX = NULL;
 static float curX[X_N];
-/* Each core's kind of work and apps you installed in history: CW_F 16-bit floats per core, for the first
+/* Each core's kind of work and installed apps in history: CW_F 16-bit floats per core, for the first
  * coreHN cores (8 at most), set aside once at start (about 345 kB for 4 cores) */
 #define CW_F    5
 #define CW_MAX  8
@@ -1578,19 +1578,11 @@ static gpointer nas_thread(gpointer user_data) {
 	return NULL;
 }
 
-/*----------------------------------------------------- apps you installed vs Axis's own apps */
+/*----------------------------------------------------- installed apps */
 
-/* Packages made by Axis (from the camera's app list, replaced on each poll; main loop only). Their processes are the
- * camera's: not in "apps you installed" totals or per-core lines. */
-static GHashTable* axisApps = NULL;
-void sampler_set_axis_apps(GPtrArray* ids) {
-	GHashTable* t = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-	for (guint i = 0; ids && i < ids->len; i++) g_hash_table_add(t, g_strdup(g_ptr_array_index(ids, i)));
-	if (ids) g_ptr_array_free(ids, TRUE);
-	if (axisApps) g_hash_table_destroy(axisApps);
-	axisApps = t;
-}
-static gboolean own_app(const char* app) { return app && app[0] && !(axisApps && g_hash_table_contains(axisApps, app)); }
+/* Every process started from /usr/local/packages/<app>/ belongs to an installed app, Axis's own (Object Analytics,
+ * Video Motion Detection ...) included: they all count as Apps; the rest is the camera itself. */
+static gboolean own_app(const char* app) { return app && app[0]; }
 
 /*----------------------------------------------------- processes */
 
@@ -1711,7 +1703,7 @@ static GArray* scan_processes(unsigned long long total, double uptime, int* proc
 			g_hash_table_replace(pids, GINT_TO_POINTER(pid), pi);
 		}
 		pi->seen = TRUE;
-		if (own_app(pi->app)) app_threads(pid, appCoreTicks);   /* apps you installed, per core */
+		if (own_app(pi->app)) app_threads(pid, appCoreTicks);   /* installed apps, per core */
 		guint64 ticks = (guint64)ut + st;
 		ProcSum p;
 		memset(&p, 0, sizeof(p));
@@ -2345,7 +2337,7 @@ void sampler_tick(void) {
 		double appsCpu = 0, appsMem = 0;
 		for (guint i = 0; i < fresh->len; i++) {
 			ProcSum* p = &g_array_index(fresh, ProcSum, i);
-			if (own_app(p->app)) { appsCpu += p->cpu; appsMem += p->memKb; }   /* Axis's own apps count as the camera */
+			if (own_app(p->app)) { appsCpu += p->cpu; appsMem += p->memKb; }   /* every installed app, Axis's own included */
 		}
 		n.appsCpu = appsCpu; n.appsMemKb = appsMem;
 		n.procs = procs; n.threads = threads; n.names = fresh->len;
@@ -2789,7 +2781,7 @@ cJSON* sampler_history_json(int seconds, int points) {
 		add_num(o, "flash", agg.flash); add_num(o, "sd", agg.sd);
 		add_num(o, "tx", agg.tx); add_num(o, "rx", agg.rx); add_num(o, "temp", agg.temp);
 		x_json(o, ax, NULL);
-		if (coreHN) {                                   /* each core: [user, system, waiting on disk, interrupts, apps you installed], peaks */
+		if (coreHN) {                                   /* each core: [user, system, waiting on disk, interrupts, installed apps], peaks */
 			cJSON* cw = cJSON_AddArrayToObject(o, "coresWork");
 			for (int c = 0; c < coreHN; c++) {
 				cJSON* b = cJSON_CreateArray();

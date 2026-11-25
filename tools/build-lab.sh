@@ -6,7 +6,7 @@
 # Output: the .eap files in the current folder.
 set -euo pipefail
 
-VERSION=12.2.0
+VERSION=12.11.0
 UBUNTU=24.04
 IMAGE=axisecp/acap-native-sdk
 CACHE_ROOT=${ACAP_SDK_CACHE:-/tmp/acap-sdk}

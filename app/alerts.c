@@ -41,7 +41,7 @@
 #define APP_NAME     "Resource Monitor"
 #define ALERTS_FILE  "localdata/alerts.json"
 #define LOG_FILE     "localdata/alerts-log.json"
-#define MAX_ALERTS   20
+#define MAX_ALERTS   ALERTS_MAX
 #define LOG_MAX      200
 #define CLEAR_MIN    5          /* a triggered alert clears only after this many seconds back to normal, at least */
 #define TEST_MS      3000       /* Test: On, then Off this much later */
@@ -875,4 +875,31 @@ cJSON* alerts_preview(const cJSON* in) {
 	cJSON_AddBoolToObject(o, "ok", TRUE);
 	g_free(t);
 	return o;
+}
+
+/*-----------------------------------------------------
+ * 1.7.0 Copy settings to other cameras (cfgsections.c): the list as saved, and the save check without saving
+ *-----------------------------------------------------*/
+cJSON* alerts_saved(void) {
+	cJSON* arr = cJSON_CreateArray();
+	g_rec_mutex_lock(&mu);
+	for (int i = 0; i < count; i++) cJSON_AddItemToArray(arr, saved_json(list[i]));
+	g_rec_mutex_unlock(&mu);
+	return arr;
+}
+
+int alerts_metric_known(const char* key) { return metric_of(key) >= 0; }
+
+gchar* alerts_normalize(cJSON* in) {
+	if (!cJSON_IsArray(in)) return g_strdup("The alerts must be a list.");
+	cJSON* wrap = cJSON_CreateObject();
+	cJSON_AddItemReferenceToObject(wrap, "alerts", in);
+	Alert* l[MAX_ALERTS];
+	int n = 0;
+	gchar* why = parse(wrap, l, &n);                    /* the same check as alerts_save */
+	cJSON_Delete(wrap);                                 /* the reference only: in stays */
+	if (why) return why;
+	while (cJSON_GetArraySize(in) > 0) cJSON_DeleteItemFromArray(in, 0);
+	for (int i = 0; i < n; i++) { cJSON_AddItemToArray(in, saved_json(l[i])); g_free(l[i]); }
+	return NULL;
 }

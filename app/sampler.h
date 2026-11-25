@@ -19,7 +19,6 @@ cJSON* sampler_processes_json(void);                 /* the latest scan, every p
 cJSON* sampler_app_usage_json(void);                 /* per installed app: cpu, memKb, processes */
 cJSON* sampler_power_history_json(int seconds);     /* the camera's own power log for the last `seconds` (1 h to 30 d), kept 60 s */
 cJSON* sampler_camera_json(void);                    /* what the camera itself reports: streams, disk health and recording space, time sync, security */
-void   sampler_set_axis_apps(GPtrArray* ids);         /* the apps made by Axis (part of the camera); takes the array. Main loop only. */
 
 /* 1.3.0: Settings. Groups of readings: a group neither shown nor sent is not read at all. */
 enum { G_CPU = 1, G_MEM = 2, G_STORAGE = 4, G_NET = 8, G_TEMP = 16, G_POWER = 32, G_DLPU = 64, G_PROCS = 128, G_CONNS = 256, G_EVENTS = 512 /* 1.6.5: no longer read (camera events removed); the bit stays so saved settings keep their meaning */, G_ALL = 1023 };
