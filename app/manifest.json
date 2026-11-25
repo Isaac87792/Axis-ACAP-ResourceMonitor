@@ -1,0 +1,45 @@
+{
+    "schemaVersion": "1.7.1",
+    "acapPackageConf": {
+        "setup": {
+            "friendlyName": "Resource Monitor",
+            "appName": "resource_monitor",
+            "vendor": "Isaac87792",
+            "embeddedSdkVersion": "3.0",
+            "runMode": "respawn",
+            "version": "1.6.1"
+        },
+        "configuration": {
+            "settingPage": "index.html",
+            "httpConfig": [
+                {"name": "app", "access": "viewer", "type": "fastCgi"},
+                {"name": "settings", "access": "admin", "type": "fastCgi"},
+                {"name": "status", "access": "admin", "type": "fastCgi"},
+                {"name": "live", "access": "viewer", "type": "fastCgi"},
+                {"name": "history", "access": "viewer", "type": "fastCgi"},
+                {"name": "processes", "access": "viewer", "type": "fastCgi"},
+                {"name": "apps", "access": "viewer", "type": "fastCgi"},
+                {"name": "log", "access": "viewer", "type": "fastCgi"},
+                {"name": "power", "access": "viewer", "type": "fastCgi"},
+                {"name": "camera", "access": "viewer", "type": "fastCgi"},
+                {"name": "config", "access": "viewer", "type": "fastCgi"},
+                {"name": "whoami", "access": "viewer", "type": "fastCgi"},
+                {"name": "metrics", "access": "viewer", "type": "fastCgi"},
+                {"name": "control", "access": "admin", "type": "fastCgi"},
+                {"name": "configset", "access": "admin", "type": "fastCgi"},
+                {"name": "clear", "access": "admin", "type": "fastCgi"},
+                {"name": "sendtest", "access": "admin", "type": "fastCgi"},
+                {"name": "alerts", "access": "viewer", "type": "fastCgi"},
+                {"name": "alertset", "access": "admin", "type": "fastCgi"},
+                {"name": "alertact", "access": "operator", "type": "fastCgi"}
+            ]
+        }
+    },
+    "resources": {
+        "dbus": {
+            "requiredMethods": [
+                "com.axis.HTTPConf1.VAPIXServiceAccounts1.GetCredentials"
+            ]
+        }
+    }
+}
