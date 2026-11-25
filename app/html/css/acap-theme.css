@@ -1,0 +1,214 @@
+/*
+ * acap-theme.css - shared look for all of these ACAP settings pages.
+ *
+ * Matches the dark "fluent" look of AXIS Object Analytics and AXIS OS 12:
+ * Fluent UI v9 dark neutrals, the Axis yellow brand ramp, Segoe UI.
+ * Values taken from AXIS Object Analytics 1.26 (P4705, AXIS OS 12.11).
+ * Copy this file unchanged into each ACAP's html/css folder; page-specific
+ * styles go in the ACAP's own app.css.
+ *
+ * Header: app name on the left, "Created by Isaac87792" on the right (no Axis logo).
+ */
+:root {
+	color-scheme: dark;
+
+	/* Neutrals (Fluent dark) */
+	--bg-page: #141414;          /* colorNeutralBackground3 */
+	--bg-header: #1f1f1f;        /* colorNeutralBackground2 */
+	--bg-panel: #292929;         /* colorNeutralBackground1 */
+	--bg-panel-hover: #3d3d3d;   /* colorNeutralBackground1Hover */
+	--bg-input: #1f1f1f;
+	--bg-subtle-hover: #383838;
+	--stroke: #666666;           /* colorNeutralStroke1 */
+	--stroke-soft: #3d3d3d;      /* colorNeutralStroke2/3 */
+	--text: #ffffff;             /* colorNeutralForeground1 */
+	--text-2: #d6d6d6;           /* colorNeutralForeground2 */
+	--text-3: #adadad;           /* colorNeutralForeground3 */
+	--text-4: #999999;           /* colorNeutralForeground4 */
+	--text-disabled: #5c5c5c;
+
+	/* Axis brand ramp */
+	--brand: #ffcc33;            /* brand 100: links, accents, selected tab */
+	--brand-hover: #ffd450;      /* brand 110 */
+	--brand-strong: #fec10c;     /* brand 90 */
+	--brand-dim: #4c381e;        /* brand 40: tinted backgrounds */
+	--on-brand: #1a1a1a;
+
+	/* Status */
+	--ok: #54b054;
+	--ok-bg: #0d2e0d;
+	--warn: #ffcc33;
+	--danger: #dc626d;
+	--danger-bg: #3b1214;
+
+	--font: 'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
+	--font-mono: Consolas, 'Courier New', Courier, monospace;
+	--radius: 4px;
+	--radius-large: 8px;
+	--shadow: 0 0 2px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+	margin: 0;
+	background: var(--bg-page);
+	color: var(--text);
+	font: 14px/20px var(--font);
+	overflow-x: hidden;
+}
+
+a { color: var(--brand); }
+a:hover { color: var(--brand-hover); }
+
+/* Header */
+.acap-header {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	flex-wrap: wrap;
+	padding: 0 24px;
+	min-height: 48px;
+	background: var(--bg-header);
+	border-bottom: 1px solid var(--stroke-soft);
+}
+.acap-header .acap-title { font-size: 16px; font-weight: 600; margin: 0; }
+.acap-header .acap-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.acap-header .acap-tabs a {
+	color: var(--text-2);
+	text-decoration: none;
+	padding: 13px 10px 11px;
+	border-bottom: 2px solid transparent;
+	font-weight: 600;
+}
+.acap-header .acap-tabs a:hover { color: var(--text); }
+.acap-header .acap-tabs a.active { color: var(--text); border-bottom-color: var(--brand); }
+.acap-header .acap-credit { margin-left: auto; color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.acap-header .acap-credit strong { color: var(--brand); font-weight: 600; }
+
+.acap-main { padding: 20px 24px 48px; }   /* fills the window at any width */
+.acap-lead { color: var(--text-3); margin: 0 0 16px; }
+
+/* Panels */
+.acap-panel {
+	background: var(--bg-panel);
+	border-radius: var(--radius-large);
+	box-shadow: var(--shadow);
+	padding: 16px 20px;
+	margin-bottom: 16px;
+}
+.acap-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.acap-panel h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.hint { color: var(--text-3); }
+.small { font-size: 12px; line-height: 16px; }
+
+/* Inputs */
+input[type=text], select {
+	background: var(--bg-input);
+	color: var(--text);
+	border: 1px solid var(--stroke-soft);
+	border-bottom-color: var(--stroke);
+	border-radius: var(--radius);
+	padding: 5px 10px;
+	font: inherit;
+	width: 100%;
+	min-width: 0;
+	height: 32px;
+}
+input[type=text]:hover, select:hover { border-color: var(--stroke); }
+input[type=text]:focus, select:focus { outline: none; border-bottom: 2px solid var(--brand); padding-bottom: 4px; }
+
+/* Buttons */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	height: 32px;
+	padding: 0 12px;
+	background: var(--bg-panel);
+	color: var(--text);
+	border: 1px solid var(--stroke);
+	border-radius: var(--radius);
+	font: 600 14px var(--font);
+	cursor: pointer;
+	white-space: nowrap;
+}
+.btn:hover { background: var(--bg-panel-hover); }
+.btn:disabled { color: var(--text-disabled); border-color: var(--stroke-soft); background: transparent; cursor: default; }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.btn.primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
+.btn.primary:disabled { background: var(--brand-dim); border-color: var(--brand-dim); color: var(--text-3); }
+.btn.active { border-color: var(--brand); color: var(--brand); }
+.btn.subtle { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.subtle:hover { background: var(--bg-subtle-hover); color: var(--text); }
+.btn.danger:hover { color: var(--danger); }
+
+/* Switch */
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .track {
+	width: 40px; height: 20px; flex: none;
+	border-radius: 10px;
+	border: 1px solid var(--text-3);
+	position: relative;
+	transition: background .15s, border-color .15s;
+}
+.switch .track::after {
+	content: ""; position: absolute; top: 3px; left: 3px;
+	width: 12px; height: 12px; border-radius: 50%;
+	background: var(--text-3);
+	transition: transform .15s, background .15s;
+}
+.switch input:checked + .track { background: var(--brand); border-color: var(--brand); }
+.switch input:checked + .track::after { transform: translateX(20px); background: var(--on-brand); }
+.switch input:focus-visible + .track { outline: 2px solid var(--text); outline-offset: 2px; }
+.switch .label { color: var(--text-2); }
+
+/* Tables */
+table.acap-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.acap-table th {
+	text-align: left; font-weight: 600; color: var(--text-3);
+	padding: 8px; border-bottom: 1px solid var(--stroke-soft);
+}
+table.acap-table td { padding: 10px 8px; border-bottom: 1px solid var(--stroke-soft); vertical-align: top; overflow-wrap: anywhere; }
+table.acap-table tr:last-child td { border-bottom: none; }
+
+/* Status */
+.status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.status.ok { color: var(--ok); }
+.status.triggered { color: var(--brand); }
+.status.idle { color: var(--text-3); }
+.status.error { color: var(--danger); }
+.pill { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 12px; font-weight: 600; line-height: 20px; }
+.pill.on { background: var(--brand); color: var(--on-brand); }
+.pill.off { background: var(--stroke-soft); color: var(--text-2); }
+/* Informational "i": details on hover or keyboard focus */
+.info-i {
+	display: inline-flex; align-items: center; justify-content: center; flex: none;
+	width: 16px; height: 16px; border-radius: 50%;
+	border: 1px solid var(--text-3); color: var(--text-3);
+	font: italic 600 11px/1 Georgia, 'Times New Roman', serif;
+	cursor: help; user-select: none;
+}
+.info-i:hover, .info-i:focus-visible { border-color: var(--brand); color: var(--brand); outline: none; }
+.mono { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
+
+/* Toast */
+.toast {
+	position: fixed; right: 24px; bottom: 24px; z-index: 50;
+	max-width: min(480px, calc(100vw - 48px));
+	padding: 12px 16px;
+	background: var(--bg-panel);
+	border-left: 4px solid var(--stroke);
+	border-radius: var(--radius);
+	box-shadow: 0 8px 16px rgba(0,0,0,.5);
+}
+.toast.ok { border-left-color: var(--ok); }
+.toast.bad { border-left-color: var(--danger); }
+.toast.info { border-left-color: var(--brand); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

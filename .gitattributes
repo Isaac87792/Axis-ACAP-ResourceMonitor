@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Scripts run on Linux build workers: keep LF
+*.sh text eol=lf
+*.py text eol=lf
