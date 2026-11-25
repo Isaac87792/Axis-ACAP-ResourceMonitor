@@ -1,5 +1,5 @@
 PROG1	= resource_monitor
-OBJS1	= main.c sampler.c store.c config.c prom.c sendout.c netconn.c alerts.c ACAP.c cJSON.c
+OBJS1	= main.c sampler.c store.c config.c prom.c sendout.c netconn.c alerts.c context.c ACAP.c cJSON.c
 PROGS	= $(PROG1)
 
 PKGS = glib-2.0 gio-2.0 axevent axparameter fcgi libcurl

@@ -202,7 +202,7 @@ static int mq_publish(Mq* m, const char* topic, const char* payload, int retaine
 /*----------------------------------------------------- 1.5.0: alerts out */
 #define OUT_ALERTS 40                           /* alerts (20 at most) and ones being taken back */
 #define IX_ALERT_MAX 200                        /* InfluxDB alert points waiting, at most */
-typedef struct { char id[16], name[64], ctx[160]; int active, dirty, gone, ha; long long t; unsigned ver; } OutAlert;   /* ver: changes each update */
+typedef struct { char id[16], name[64], ctx[256]; int active, dirty, gone, ha; long long t; unsigned ver; } OutAlert;   /* ver: changes each update */
 static GMutex alLock;                           /* statically allocated: no init needed */
 static OutAlert outA[OUT_ALERTS];
 static int outN = 0;

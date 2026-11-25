@@ -18,4 +18,6 @@ gchar* alerts_save(const cJSON* in, const char* who);
 gchar* alerts_act(const char* id, const char* action, const char* who);
 /* 1.5.0: gauges resource_monitor_alert_active for the alerts that chose Prometheus (to free; NULL when none) */
 char*  alerts_prom(void);
+/* 1.6.3: what an alert's Context would send now (the Context editor's preview) */
+cJSON* alerts_preview(const cJSON* in);
 #endif

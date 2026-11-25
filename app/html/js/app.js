@@ -1669,7 +1669,7 @@ function alFmt(m, v) { v = num(v); if (isNaN(v)) return '–'; const u = alMetri
 const alFor = s => (s = +s || 0) >= 60 && s % 60 === 0 ? s / 60 + ' min' : s + ' s';
 const alRule = a => alMetric(a.metric).name + ' ' + (a.op === 'below' ? 'below' : 'above') + ' ' + alFmt(a.metric, a.value) + ' for ' + alFor(a.for);
 /* The alert as the camera takes it (approval is never asked for any more) */
-const alOut = a => ({ id: a.id || undefined, name: a.name, on: !!a.on, metric: a.metric, op: a.op, value: a.value === '' || a.value == null ? null : +a.value, for: a.for === '' || a.for == null ? null : +a.for, approval: false, to: alTo(a) });
+const alOut = a => ({ id: a.id || undefined, name: a.name, on: !!a.on, metric: a.metric, op: a.op, value: a.value === '' || a.value == null ? null : +a.value, for: a.for === '' || a.for == null ? null : +a.for, approval: false, to: alTo(a), context: a.context && a.context.text ? a.context : undefined });
 function initAlerts() {
 	$('#al-add').onclick = () => alEdit(null);
 	$('#al-log-close').onclick = () => { AL.logId = null; $('#al-log').hidden = true; };
@@ -1694,7 +1694,12 @@ function initAlerts() {
 	/* The dialog */
 	$('#ae-cancel').onclick = alClose;
 	$('#dlg-alert').onclick = e => { if (e.target.id === 'dlg-alert') alClose(); };
-	document.addEventListener('keydown', e => { if (e.key === 'Escape') alClose(); });
+	/* Esc closes the top dialog only: the Context editor sits over Edit alert */
+	document.addEventListener('keydown', e => {
+		if (e.key !== 'Escape') return;
+		if (!$('#dlg-ctx').hidden) ctxClose(false); else if (!$('#dlg-imp').hidden) impClose(); else alClose();
+	});
+	initAlerts163();
 	$('#ae-metric').onchange = () => { $('#ae-unit').textContent = alMetric($('#ae-metric').value).unit; alNowHint(); };
 	$('#ae-to').onclick = e => { const c = e.target.closest('button[data-to]'); if (c) { c.classList.toggle('on'); c.setAttribute('aria-pressed', c.classList.contains('on')); } };
 	$('#ae-save').onclick = alSaveEdit;
@@ -1712,7 +1717,7 @@ async function pollAlerts() {
 	clearTimeout(AL.timer);
 	try {
 		AL.data = await getJSON('alerts');
-		if (tab === 'alerts') drawAlerts(); else drawAlertsTile();
+		if (tab === 'alerts') { drawAlerts(); drawAlWf(); } else drawAlertsTile();
 		if (AL.logId) drawAlertLog();
 	} catch (e) { if (tab === 'alerts' && !AL.data) $('#al-rows').innerHTML = '<tr><td colspan="5" class="hint">Could not read the alerts: ' + esc(e.message) + '</td></tr>'; }
 	AL.timer = setTimeout(pollAlerts, tab === 'alerts' ? 2000 : 15000);
@@ -1745,7 +1750,7 @@ function drawAlerts() {
 		const topic = a.status && a.status.topic;
 		return '<tr data-id="' + esc(a.id) + '"' + (a.on ? '' : ' class="al-off"') + '>' +
 			'<td data-l="On"><label class="switch" title="' + (a.on ? 'Enabled' : 'Disabled') + '"><input type="checkbox" data-f="on"' + (a.on ? ' checked' : '') + dis + ' aria-label="Enabled"><span class="track"></span></label></td>' +
-			'<td data-l="Alert"><div class="al-nm"' + (topic ? ' title="' + esc('Event: Resource Monitor › ' + a.name + '\nTopic: ' + topic) + '"' : '') + '>' + esc(a.name || '(no name)') + '</div><div class="al-rule">' + esc(alRule(a)) + '</div></td>' +
+			'<td data-l="Alert"><div class="al-nm"' + (topic ? ' title="' + esc('Event: Resource Monitor › ' + a.name + '\nTopic: ' + topic) + '"' : '') + '>' + esc(a.name || '(no name)') + '</div><div class="al-rule">' + esc(alRule(a)) + '</div>' + (a.context && a.context.text ? '<div class="al-ctx" title="Context">' + esc(a.context.text) + '</div>' : '') + '</td>' +
 			'<td data-l="Send to" class="al-to-txt">' + toTxt + '</td>' +
 			'<td data-l="Status">' + alStatusHtml(a) + '</td>' +
 			'<td data-l=""><div class="row-actions"><button type="button" class="btn" data-a="test"' + (op && a.on ? ' title="Sends it On, then Off 3 s later, to each Send to (for real)"' : ' disabled title="' + (a.on ? 'Operators and admins' : 'Turn it on first') + '"') + '>Test</button>' +
@@ -1767,6 +1772,8 @@ function alEdit(a) {
 	$('#ae-to').innerHTML = '<div class="al-to" role="group" aria-label="Send to">' + AL_TO.map(t => '<button type="button" class="to-chip' + (to[t[0]] ? ' on' : '') + (alOff(t[0]) ? ' off-set' : '') + '" data-to="' + t[0] + '" aria-pressed="' + to[t[0]] + '"' +
 		(alOff(t[0]) ? ' title="' + esc(AL_OFF[t[0]] + ': nothing goes out until it is on') + '"' : '') + '>' + t[1] + (alOff(t[0]) ? ' (off in Settings)' : '') + '</button>').join('') + '</div>';
 	$('#ae-on').checked = e.on !== false;
+	AL.ctx = e.context && e.context.text ? Object.assign({}, e.context) : null;   /* 1.6.3: kept until Save */
+	alCtxRow();
 	$('#ae-del').hidden = !a;
 	$('#ae-msg').hidden = true;
 	alNowHint();
@@ -1785,7 +1792,7 @@ async function alSaveEdit() {
 	$$('#ae-to button[data-to]').forEach(c => { to[c.dataset.to] = c.classList.contains('on'); });
 	const v = $('#ae-value').value, fr = $('#ae-for').value;
 	const n = Object.assign({}, e, { name: $('#ae-name').value.trim(), metric: $('#ae-metric').value, op: $('#ae-op').value, value: v === '' ? '' : +v,
-		for: fr === '' ? '' : Math.round(+fr * +$('#ae-forunit').value), on: $('#ae-on').checked, to });
+		for: fr === '' ? '' : Math.round(+fr * +$('#ae-forunit').value), on: $('#ae-on').checked, to, context: AL.ctx || undefined });
 	const list = e.id ? AL.data.alerts.map(x => x.id === e.id ? n : x) : AL.data.alerts.concat([n]);
 	const err = await saveAlerts(list, (n.name || 'Alert') + ': saved.');
 	if (err) { $('#ae-msg').textContent = 'Not saved: ' + err; $('#ae-msg').hidden = false; } else alClose();
@@ -1831,6 +1838,336 @@ function drawAlertLog(toEnd) {
 	if (atEnd) body.scrollTop = body.scrollHeight;
 }
 
+/*---------------------------------------------------- 1.6.3 Alerts: Context editor, Workflow view, Export / Import (as in Data Bender) */
+const CTX_TOKENS = ['{value}', '{limit}', '{unit}', '{reading}', '{alert}', '{state}', '{for}', '{count}', '{time}', '{date}', '{camera}', '{serial}', '{ip}',
+	'{round(value, 1)}', '{pad(count, 4)}', '{upper(alert)}', '{if(value > 95, "critical", "high")}', '{if(state == "On", "ALARM", "clear")}'];
+const AL_HELP = {
+	alerts: 'An alert is a reading past its limit for a while, for example CPU busy above 90 % for 1 min.\nIt is sent as a camera event (for a VMS, or the camera\'s Events › Rules), or to MQTT, InfluxDB or Prometheus when those are on in Settings.\nTest sends On, then Off 3 s later, to each Send to. Point at a status for details.',
+	context: 'The text sent with the alert\'s camera event, MQTT message and InfluxDB point. Left empty, it sends the reading and the limit, for example "CPU busy 95 % (above 90 % for 60 s)".\nFields: {value} the reading, {limit}, {unit}, {reading} (its name), {alert}, {state} (On or Off), {for}, {count}, {time}, {date}, {camera}, {serial}, {ip}.\nFormulas: + - * / %, round, pad, upper, lower and if(test, then, else), for example {if(value > 95, "critical", "high")}.',
+	when: 'What to watch, the limit, and how long the reading must stay past it before the alert turns On. It turns Off again when the reading is back (after at least 5 s).',
+	counter: '{count} goes up each time the alert turns On. Test does not move it. Reset picks when it starts again from Start at.'
+};
+function initAlerts163() {
+	$('#al-view-table').onclick = () => setAlView('table');
+	$('#al-view-wf').onclick = () => setAlView('wf');
+	$('#al-export').onclick = exportAlerts;
+	$('#al-import').onclick = () => { $('#al-import-file').value = ''; $('#al-import-file').click(); };
+	$('#al-import-file').onchange = e => { const f = e.target.files && e.target.files[0]; if (f) importAlerts(f); };
+	$('#imp-cancel').onclick = impClose;
+	$('#imp-add').onclick = () => applyImport(false);
+	$('#imp-replace').onclick = () => applyImport(true);
+	$('#dlg-imp').onclick = e => { if (e.target.id === 'dlg-imp') impClose(); };
+	/* Context editor */
+	$('#ae-ctx-edit').onclick = ctxOpen;
+	$('#ctx-tokens').innerHTML = CTX_TOKENS.map(t => '<button type="button" class="token">' + esc(t) + '</button>').join('');
+	$('#ctx-tokens').onclick = e => { const b = e.target.closest('.token'); if (b) ctxInsert(b.textContent); };
+	['#ctx-text', '#ctx-start', '#ctx-step'].forEach(s => { $(s).oninput = ctxPreview; });
+	$('#ctx-reset').onchange = ctxPreview;
+	$('#ctx-done').onclick = () => ctxClose(true);
+	$('#ctx-cancel').onclick = () => ctxClose(false);
+	$('#ctx-clear').onclick = () => { $('#ctx-text').value = ''; ctxPreview(); };
+	$('#dlg-ctx').onclick = e => { if (e.target.id === 'dlg-ctx') ctxClose(false); };
+	/* Workflow */
+	$('#al-wf-run').onclick = () => { AL.wfRun = !AL.wfRun; $('#al-wf-run').textContent = AL.wfRun ? 'Hide last trigger' : 'Show last trigger'; $('#al-wf-run').classList.toggle('active', AL.wfRun); $('#al-wf-run').setAttribute('aria-pressed', String(AL.wfRun)); drawAlWf(); };
+	$('#al-wf-test').onclick = () => { const a = alById(AL.wfId); if (a) actAlert(a, 'test'); };
+	$('#al-wf-edit').onclick = () => { const a = alById(AL.wfId); if (a) alEdit(a); };
+	$('#al-wf-list').onclick = e => { const b = e.target.closest('[data-id]'); if (b) { AL.wfId = b.dataset.id; AL.wfNode = 'when'; drawAlWf(); } };
+	$('#al-wf-canvas').onclick = e => { const g = e.target.closest('[data-node]'); if (g) { AL.wfNode = g.dataset.node; drawAlWf(); } };
+	$('#al-wf-canvas').onkeydown = e => { const g = e.target.closest('[data-node]'); if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); AL.wfNode = g.dataset.node; drawAlWf(); } };
+	$('#al-wf-props').onclick = e => { if (e.target.id === 'al-wf-ctx') { const a = alById(AL.wfId); if (a) { alEdit(a); ctxOpen(); } } };
+	/* Help (i): the page's explanations, one click away */
+	Help.add($('#tab-alerts .al-head h2'), 'Alerts', AL_HELP.alerts);
+	$('.al-where').remove(); $('#al-foot').remove();
+	Help.add($('#ae-ctx').closest('tr').firstElementChild, 'Context', AL_HELP.context);
+	Help.add($('#ae-metric').closest('tr').firstElementChild, 'When', AL_HELP.when);
+	Help.add($$('#dlg-ctx .ctx-l')[2], 'Counter', AL_HELP.counter);
+	let v = 'table';
+	try { v = localStorage.getItem('rm-al-view') || 'table'; } catch (e) { /* default */ }
+	setAlView(v);
+}
+function setAlView(v) {
+	AL.view = v === 'wf' ? 'wf' : 'table';
+	try { localStorage.setItem('rm-al-view', AL.view); } catch (e) { /* not kept */ }
+	$('#al-view-table').classList.toggle('on', AL.view === 'table'); $('#al-view-table').setAttribute('aria-pressed', String(AL.view === 'table'));
+	$('#al-view-wf').classList.toggle('on', AL.view === 'wf'); $('#al-view-wf').setAttribute('aria-pressed', String(AL.view === 'wf'));
+	$('#al-table-view').hidden = AL.view !== 'table';
+	drawAlWf();
+}
+
+/* The Context row in Edit alert, and its preview */
+function alFormNow() {
+	const v = $('#ae-value').value, fr = $('#ae-for').value;
+	return { id: AL.edit && AL.edit.id, name: $('#ae-name').value.trim(), metric: $('#ae-metric').value, op: $('#ae-op').value,
+		value: v === '' ? 0 : +v, for: fr === '' ? 0 : Math.round(+fr * +$('#ae-forunit').value) };
+}
+async function alCtxRow() {
+	const c = AL.ctx;
+	$('#ae-ctx').textContent = c ? c.text : 'None: sends the reading and the limit';
+	$('#ae-ctx').classList.toggle('none', !c);
+	$('#ae-ctx-next').textContent = '';
+	try {
+		const r = await postJSON('alertpreview', Object.assign(alFormNow(), { context: c || undefined }));
+		if (r && r.ok) $('#ae-ctx-next').textContent = 'Next On sends: ' + r.text;
+	} catch (e) { /* the preview is a nicety */ }
+}
+function ctxOpen() {
+	const c = AL.ctx || { text: '', start: 1, step: 1, reset: 'daily' };
+	$('#ctx-h').textContent = 'Context: ' + ($('#ae-name').value.trim() || '(no name)');
+	$('#ctx-text').value = c.text || '';
+	$('#ctx-start').value = c.start == null ? 1 : c.start;
+	$('#ctx-step').value = c.step == null ? 1 : c.step;
+	$('#ctx-reset').value = c.reset || 'daily';
+	$('#dlg-ctx').hidden = false;
+	$('#ctx-text').focus();
+	ctxPreview();
+}
+function ctxFromDialog() {
+	const n = (s, d) => { const x = parseFloat($(s).value); return isFinite(x) ? x : d; };
+	return { text: $('#ctx-text').value.trim(), start: n('#ctx-start', 1), step: n('#ctx-step', 1), reset: $('#ctx-reset').value };
+}
+function ctxPreview() {
+	clearTimeout(AL.ctxTimer);
+	AL.ctxTimer = setTimeout(async () => {
+		const c = ctxFromDialog();
+		if (!c.text) { $('#ctx-preview').textContent = 'The reading and the limit (no Context of its own)'; return; }
+		try {
+			const r = await postJSON('alertpreview', Object.assign(alFormNow(), { context: c }));
+			$('#ctx-preview').textContent = r && r.ok ? r.text : 'Preview not available';
+		} catch (e) { $('#ctx-preview').textContent = 'Preview not available: ' + e.message; }
+	}, 250);
+}
+function ctxInsert(t) {
+	const ta = $('#ctx-text'), s = ta.selectionStart, e = ta.selectionEnd;
+	ta.value = ta.value.slice(0, s) + t + ta.value.slice(e);
+	ta.focus();
+	ta.selectionStart = ta.selectionEnd = s + t.length;
+	ctxPreview();
+}
+function ctxClose(keep) {
+	if (keep) { const c = ctxFromDialog(); AL.ctx = c.text ? c : null; alCtxRow(); }
+	$('#dlg-ctx').hidden = true;
+	if (!$('#dlg-alert').hidden) $('#ae-ctx-edit').focus();
+}
+
+/* Workflow: the chosen alert drawn as a flowchart. When > above/below? > lasts > Send > Off */
+const WF_COL = { when: '#e8892c', decide: '#d6a51c', flow: '#6b6b73', do: '#2f7fd0', end: '#4a4a52' };
+const trunc = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+function alLastOn(a) {
+	const l = (AL.data.log || []).filter(x => x.id === a.id);
+	let on = -1;
+	l.forEach((x, i) => { if (x.state === 'On' && !/^Test/.test(x.what || '')) on = i; });
+	if (on < 0) return null;
+	return { line: l[on], off: l.slice(on + 1).some(x => x.state === 'Off' && !/^Test/.test(x.what || '')) };
+}
+function alWfChart(a) {
+	const st = a.status || {}, m = alMetric(a.metric), f = +a.for || 0, c = a.context && a.context.text;
+	const last = AL.wfRun ? alLastOn(a) : null;
+	const reached = !AL.wfRun ? null : !last ? ['when'] : ['when', 'cond', 'lasts', 'send'].concat(last.off ? ['end'] : []);
+	const chain = [
+		['when', 'box', 'when', 65, 200, 54, 'When: ' + trunc(m.name, 24), st.now != null ? 'now ' + alFmt(a.metric, st.now) : (st.word || ''), null, ''],
+		['cond', 'dia', 'decide', 165, 0, 70, a.op === 'below' ? 'Below' : 'Above', trunc(alFmt(a.metric, a.value), 10) + '?', ['x1', 'Listening', 'no'], 'yes'],
+		['lasts', 'box', 'flow', 65, 200, 54, f ? 'Lasts: ' + alFor(f) : 'Lasts: no wait', f ? 'ends sooner: nothing sent' : 'sends at once', f ? ['x2', 'Not sent', 'sooner'] : null, 'lasted'],
+		['send', 'box', 'do', 55, 220, 62, 'Send: ' + trunc(a.name || '(no name)', 24), c ? 'Context: ' + trunc(c, 26) : 'Context: reading and limit', null, ''],
+		['end', 'pill', 'end', 95, 140, 36, 'Off when back to normal', '', null, '']
+	];
+	const N = [], W = [], GAP = 38;
+	let top = 16;
+	chain.forEach((n, i) => {
+		const dia = n[1] === 'dia', h = n[5], mid = top + h / 2;
+		N.push([n[0], n[1], n[2], n[3], dia ? mid : top, n[4], h, n[6], n[7]]);
+		const side = n[8];
+		if (side) {
+			N.push([side[0], 'pill', 'end', 300, mid - 18, 96, 36, side[1], '']);
+			W.push(dia ? ['M215 ' + mid + ' L300 ' + mid, side[2], 238, mid - 7] : ['M265 ' + mid + ' L300 ' + mid, side[2], 262, mid - 8]);
+		}
+		if (i < chain.length - 1) W.push(['M165 ' + (top + h) + ' L165 ' + (top + h + GAP), n[9], 172, top + h + 23]);
+		top += h + GAP;
+	});
+	const height = top - GAP + 16;
+	const nodes = N.map(([id, sh, k, x, y, wd, h, t1, t2]) => {
+		let shape, tx, ty, tk;
+		if (sh === 'dia') {
+			shape = '<polygon points="' + x + ',' + (y - 35) + ' ' + (x + 52) + ',' + y + ' ' + x + ',' + (y + 35) + ' ' + (x - 52) + ',' + y + '" fill="' + WF_COL[k] + '"/>';
+			tx = x; ty = y + (t2 ? -4 : 4); tk = [x + 34, y - 30];
+		} else {
+			shape = '<rect x="' + x + '" y="' + y + '" width="' + wd + '" height="' + h + '" rx="' + (sh === 'pill' ? h / 2 : 8) + '" fill="' + WF_COL[k] + '"/>';
+			tx = x + wd / 2; ty = y + h / 2 + (t2 ? -4 : 4); tk = [x + wd - 4, y + 4];
+		}
+		const hit = reached && reached.indexOf(id) >= 0;
+		const cls = 'node' + (id === AL.wfNode ? ' sel' : '') + (reached && !hit ? ' miss' : '');
+		return '<g class="' + cls + '" data-node="' + id + '" tabindex="0" role="button" aria-label="' + esc(t1 + ' ' + t2) + '">' + shape +
+			'<text x="' + tx + '" y="' + ty + '" text-anchor="middle">' + esc(t1) + '</text>' +
+			(t2 ? '<text class="sub" x="' + tx + '" y="' + (ty + 15) + '" text-anchor="middle">' + esc(t2) + '</text>' : '') +
+			(hit ? '<g class="tick"><circle cx="' + tk[0] + '" cy="' + tk[1] + '" r="8"/><text x="' + tk[0] + '" y="' + (tk[1] + 4) + '" text-anchor="middle">✓</text></g>' : '') + '</g>';
+	}).join('');
+	const wires = W.map(x => '<path class="wire" d="' + x[0] + '" marker-end="url(#al-ar)"/>' + (x[1] ? '<text class="w" x="' + x[2] + '" y="' + x[3] + '">' + x[1] + '</text>' : '')).join('');
+	return '<svg viewBox="0 0 410 ' + height + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Workflow of the alert ' + esc(a.name) + '">' +
+		'<defs><marker id="al-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker></defs>' + wires + nodes + '</svg>';
+}
+function alWfProps(a) {
+	const st = a.status || {}, m = alMetric(a.metric), f = +a.for || 0, c = a.context && a.context.text, to = alTo(a);
+	const ways = AL_TO.filter(t => to[t[0]]).map(t => t[1]).join(', ') || 'Nowhere';
+	const head = (k, tag, title) => '<h4><span class="kind' + (k === 'when' || k === 'decide' ? ' dark' : '') + '" style="background:' + WF_COL[k] + '">' + tag + '</span>' + esc(title) + '</h4>';
+	const row = (l, v) => '<span class="p-l">' + esc(l) + '</span><div>' + v + '</div>';
+	const n = AL.wfNode;
+	let h;
+	if (n === 'when') h = head('when', 'When', m.name) + row('Reading', esc(m.name)) + row('Now', st.now != null ? esc(alFmt(a.metric, st.now)) : '<span class="hint">no reading</span>') + row('Status', esc(st.word || ''));
+	else if (n === 'cond' || n === 'x1') h = head('decide', 'Condition', (a.op === 'below' ? 'Below ' : 'Above ') + alFmt(a.metric, a.value)) + '<div class="help">While the reading is ' + (a.op === 'below' ? 'at or above' : 'at or under') + ' the limit, the alert keeps Listening and sends nothing.</div>';
+	else if (n === 'lasts' || n === 'x2') h = head('flow', 'Lasts', f ? alFor(f) : 'No wait') + '<div class="help">' + (f ? 'The reading must stay past the limit this long. If it comes back sooner, nothing is sent.' : 'It turns On as soon as the reading passes the limit.') + '</div>';
+	else if (n === 'send') h = head('do', 'Send', ways) + row('Event name', esc(a.name || '(no name)')) + '<div class="help">Sent as: Resource Monitor › ' + esc(a.name || '…') + '</div>' +
+		row('Context', '<code class="' + (c ? '' : 'none') + '">' + esc(c || 'None: sends the reading and the limit') + '</code>') +
+		(isAdmin() ? '<button type="button" class="btn" id="al-wf-ctx" style="margin-top:6px">Edit context…</button>' : '');
+	else h = head('end', 'Off', 'Back to normal') + '<div class="help">It turns Off when the reading has been back on the right side of the limit for ' + (f > 5 ? alFor(f) : '5 s') + ', and sends Off to each Send to.</div>';
+	return h + '<div class="how"><p>When <b>' + esc(m.name) + '</b> is <b>' + (a.op === 'below' ? 'below ' : 'above ') + esc(alFmt(a.metric, a.value)) + '</b>' + (f ? ' for <b>' + esc(alFor(f)) + '</b>' : '') +
+		', the alert turns On and sends <b>Resource Monitor › ' + esc(a.name || '…') + '</b> to ' + esc(ways) + '.</p></div>';
+}
+function drawAlWf() {
+	if (!AL.data) return;
+	const admin = isAdmin();
+	$('#al-import').hidden = !admin;
+	const wf = AL.view === 'wf', list = AL.data.alerts;
+	$('#al-wf-view').hidden = !wf;
+	if (!wf) return;
+	if (!list.length) { $('#al-wf-view').hidden = true; $('#al-table-view').hidden = false; return; }
+	$('#al-table-view').hidden = true;
+	if (!alById(AL.wfId)) { AL.wfId = list[0].id; AL.wfNode = 'when'; }
+	const a = alById(AL.wfId);
+	$('#al-wf-edit').hidden = !admin;
+	$('#al-wf-test').disabled = !(isOperator() && a.on);
+	$('#al-wf-list').innerHTML = list.map(x => {
+		const w = (x.status && x.status.word) || '', bad = x.on && w === 'Problem';
+		return '<button type="button" class="wf-rule' + (x.id === a.id ? ' on' : '') + '" data-id="' + esc(x.id) + '" role="option" aria-selected="' + (x.id === a.id) + '">' +
+			'<span class="wf-dot' + (!x.on ? '' : bad ? ' err' : ' ok') + '"></span><span><b>' + esc(x.name || '(no name)') + '</b><span class="sub">' + esc(alMetric(x.metric).name + ' · ' + (x.on ? w : 'Disabled')) + '</span></span></button>';
+	}).join('');
+	const cv = $('#al-wf-canvas');
+	const focused = document.activeElement && cv.contains(document.activeElement) ? document.activeElement.dataset.node : null;
+	cv.innerHTML = alWfChart(a);
+	cv.classList.toggle('run', !!AL.wfRun);
+	if (focused) { const g = cv.querySelector('[data-node="' + focused + '"]'); if (g) g.focus(); }
+	$('#al-wf-props').innerHTML = alWfProps(a);
+	const last = AL.wfRun ? alLastOn(a) : null;
+	$('#al-wf-note').hidden = !AL.wfRun;
+	$('#al-wf-note').textContent = !AL.wfRun ? '' : last ? 'Last On ' + hhmm(last.line.t, 1) + ': ' + last.line.what + (last.off ? '; it has turned Off since.' : '; still On.') + ' ✓ reached, faded = not reached.' : 'This alert has not turned On in its log yet.';
+}
+
+/* Export / Import alerts: copy one camera's alerts to others */
+function exportAlerts() {
+	const l = (AL.data && AL.data.alerts) || [];
+	if (!l.length) { $('#al-msg').textContent = 'There are no alerts to export.'; return; }
+	const out = { app: 'resource_monitor', format: 1, exported: new Date().toISOString(), alerts: l.map(a => { const o = alOut(a); delete o.id; return o; }) };
+	const d = new Date(), p = n => (n < 10 ? '0' : '') + n;
+	const name = 'Resource Monitor alerts ' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '.json';
+	const link = document.createElement('a');
+	link.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
+	link.download = name;
+	document.body.appendChild(link);
+	link.click();
+	setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 1000);
+	$('#al-msg').textContent = 'Exported ' + l.length + ' alert' + (l.length === 1 ? '' : 's') + '.';
+}
+function importAlerts(file) {
+	const rd = new FileReader();
+	rd.onload = () => {
+		let j = null;
+		try { j = JSON.parse(rd.result); } catch (e) { /* not JSON */ }
+		const list = j && j.app === 'resource_monitor' && Array.isArray(j.alerts) ? j.alerts : null;
+		const keys = ((AL.data && AL.data.metrics) || []).map(m => m.key);
+		const clean = (list || []).filter(a => a && typeof a === 'object' && typeof a.name === 'string' && keys.indexOf(a.metric) >= 0)
+			.map(a => { const c = JSON.parse(JSON.stringify(a)); delete c.id; delete c.status; return c; });
+		if (!clean.length) { $('#al-msg').textContent = 'That file has no Resource Monitor alerts.'; return; }
+		const have = AL.data.alerts.length;
+		if (!have) { AL.imp = clean; applyImport(true); return; }
+		AL.imp = clean;
+		$('#imp-p').textContent = 'The file has ' + clean.length + ' alert' + (clean.length === 1 ? '' : 's') + '. This camera has ' + have + '. Replace them, or add the file\'s alerts to them? It is saved at once.';
+		$('#dlg-imp').hidden = false;
+		$('#imp-add').focus();
+	};
+	rd.readAsText(file);
+}
+function impClose() { $('#dlg-imp').hidden = true; AL.imp = null; }
+async function applyImport(replace) {
+	const clean = AL.imp;
+	impClose();
+	if (!clean) return;
+	const list = replace ? clean : AL.data.alerts.concat(clean);
+	if (list.length > 20) { $('#al-msg').textContent = 'Not imported: this camera can have 20 alerts (that would make ' + list.length + ').'; return; }
+	await saveAlerts(list, 'Imported ' + clean.length + ' alert' + (clean.length === 1 ? '' : 's') + '.');
+}
+
+/*---------------------------------------------------- 1.6.3 Help (i): a short explanation one click away (the same part as the UI kit's Kit.help) */
+const Help = (() => {
+	let pop = null, cur = null;
+	function close() {
+		if (!pop || pop.hidden) return;
+		pop.hidden = true;
+		if (cur) { cur.classList.remove('open'); cur.setAttribute('aria-expanded', 'false'); }
+		cur = null;
+	}
+	function place(btn) {
+		const r = btn.getBoundingClientRect(), w = Math.min(340, innerWidth - 16);
+		pop.style.width = w + 'px';
+		const left = Math.max(8, Math.min(r.left - 18, innerWidth - w - 8));
+		let top = r.bottom + 9, up = false;
+		pop.style.left = left + 'px'; pop.style.top = top + 'px';
+		if (top + pop.offsetHeight > innerHeight - 8 && r.top - pop.offsetHeight - 9 > 8) { top = r.top - pop.offsetHeight - 9; up = true; }
+		pop.style.top = top + 'px';
+		pop.classList.toggle('up', up);
+		pop.style.setProperty('--ax', Math.max(10, Math.min(w - 22, r.left + r.width / 2 - left - 6)) + 'px');
+	}
+	function open(btn) {
+		if (cur === btn) { close(); return; }
+		close();
+		if (!pop) {
+			pop = document.createElement('div');
+			pop.className = 'kit-pop'; pop.setAttribute('role', 'dialog'); pop.hidden = true;
+			document.body.appendChild(pop);
+			pop.addEventListener('click', e => { if (e.target.closest('.kit-pop-x')) { const b = cur; close(); if (b) b.focus(); } });
+		}
+		const title = btn.dataset.helpTitle || 'Help';
+		pop.setAttribute('aria-label', title);
+		pop.innerHTML = '<div class="kit-pop-t"><b>' + esc(title) + '</b><button type="button" class="kit-pop-x" aria-label="Close">×</button></div>' +
+			String(btn.dataset.help || '').split('\n').map(p => '<p>' + esc(p) + '</p>').join('');
+		pop.hidden = false;
+		place(btn);
+		cur = btn;
+		btn.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
+	}
+	function make(title, text) {
+		const b = document.createElement('button');
+		b.type = 'button'; b.className = 'kit-info'; b.textContent = 'i';
+		b.dataset.helpTitle = title; b.dataset.help = text;
+		b.setAttribute('aria-label', 'Help: ' + title); b.setAttribute('aria-expanded', 'false');
+		return b;
+	}
+	/* After el (a heading, a setting's name): add an (i) with this text */
+	function add(el, title, text) { if (el && text) el.appendChild(make(title, text)); }
+	document.addEventListener('click', e => {
+		const b = e.target.closest('.kit-info');
+		if (b) { e.preventDefault(); e.stopPropagation(); open(b); return; }
+		if (pop && !pop.hidden && !e.target.closest('.kit-pop')) close();
+	}, true);
+	document.addEventListener('keydown', e => { if (e.key === 'Escape' && pop && !pop.hidden) { const b = cur; close(); if (b) b.focus(); e.stopImmediatePropagation(); } }, true);
+	addEventListener('resize', close);
+	addEventListener('scroll', e => { if (pop && !pop.hidden && !(e.target instanceof Node && pop.contains(e.target))) close(); }, true);
+	return { add, close, make };
+})();
+/* The page's grey how-to sentences move into (i) buttons: panel headings, Settings rows and section notes */
+function helpify() {
+	const label = el => (el.textContent || '').replace(/\s+/g, ' ').trim();
+	$$('.acap-panel-head > .hint.small:not([id])').forEach(s => { const h = s.parentNode.querySelector('h2'); if (h) { Help.add(h, label(h), label(s)); s.remove(); } });
+	$$('#tab-settings .set-rows tr').forEach(tr => {
+		const name = tr.firstElementChild, notes = $$('td:not(:first-child) span.set-note:not([id])', tr);
+		if (!name || !notes.length) return;
+		const target = name.querySelector('.label') || name;
+		Help.add(target, label(target), notes.map(label).join('\n'));
+		notes.forEach(n => n.remove());
+	});
+	$$('#tab-settings td.set-note:not([id])').forEach(td => { const b = td.parentNode.querySelector('button'); if (b) { Help.add(td.parentNode.firstElementChild, label(b).replace(/…$/, ''), label(td)); td.textContent = ''; } });
+	$$('#tab-settings p.set-note.set-foot').forEach(p => {
+		const panel = p.closest('.acap-panel, section, .set-sec'), h = panel && panel.querySelector('h2, h3, .set-cap');
+		if (h) { Help.add(h, label(h), label(p)); p.remove(); }
+	});
+}
 /*---------------------------------------------------- 1.3.1: who is looking, and Clear */
 /* Viewers see every page; Start, Stop, Restart, Clear and Settings changes are admin only (the camera refuses them to
    anyone else too). Not known (no answer): every control shows, and the camera decides. */
@@ -1946,6 +2283,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	}).catch(() => {});
 	pollApps();
 	pollCamera();
+	helpify();
 	initAlerts();
 	fromHash();
 	pollLive();

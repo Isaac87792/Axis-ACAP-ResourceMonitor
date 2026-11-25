@@ -7,7 +7,7 @@
             "vendor": "Isaac87792",
             "embeddedSdkVersion": "3.0",
             "runMode": "respawn",
-            "version": "1.6.2"
+            "version": "1.6.3"
         },
         "configuration": {
             "settingPage": "index.html",
@@ -31,7 +31,8 @@
                 {"name": "sendtest", "access": "admin", "type": "fastCgi"},
                 {"name": "alerts", "access": "viewer", "type": "fastCgi"},
                 {"name": "alertset", "access": "admin", "type": "fastCgi"},
-                {"name": "alertact", "access": "operator", "type": "fastCgi"}
+                {"name": "alertact", "access": "operator", "type": "fastCgi"},
+                {"name": "alertpreview", "access": "viewer", "type": "fastCgi"}
             ]
         }
     },

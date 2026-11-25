@@ -177,14 +177,24 @@
 	<section class="tab-page" id="tab-alerts" hidden>
 		<div class="acap-panel">
 			<!-- 1.6.1: one plain line per alert; Edit and + Add alert open a dialog -->
-			<div class="acap-panel-head al-head"><h2>Alerts</h2><span class="set-msg" id="al-msg" role="status"></span><span class="admin-hint" hidden>Admin only: an administrator can add and change alerts.</span><button type="button" class="btn primary" id="al-add">+ Add alert</button></div>
+			<!-- 1.6.3: Table | Workflow, and Export / Import alerts, as in Data Bender -->
+			<div class="acap-panel-head al-head al-head2"><h2>Alerts</h2><div class="seg" role="group" aria-label="View"><button type="button" class="on" id="al-view-table" aria-pressed="true">Table</button><button type="button" id="al-view-wf" aria-pressed="false">Workflow</button></div><span class="al-grow"></span><span class="set-msg" id="al-msg" role="status"></span><span class="admin-hint" hidden>Admin only: an administrator can add and change alerts.</span><button type="button" class="btn subtle" id="al-export" title="Save the saved alerts to a file, to load on other cameras">Export alerts</button><button type="button" class="btn subtle" id="al-import" title="Load alerts from a file exported by Resource Monitor">Import alerts</button><input type="file" id="al-import-file" accept=".json,application/json" hidden><button type="button" class="btn primary" id="al-add">+ Add alert</button></div>
 			<p class="al-where">An alert is a reading past its limit for a while. It is sent as a camera event (for a VMS, or the camera's Events › Rules), or to MQTT, InfluxDB or Prometheus when those are on in Settings.</p>
-			<table class="acap-table stack al-table">
+			<div id="al-wf-view" hidden>
+				<div class="wf-tools"><button type="button" class="btn" id="al-wf-run" aria-pressed="false">Show last trigger</button><button type="button" class="btn" id="al-wf-test">Test</button><button type="button" class="btn" id="al-wf-edit">Edit alert</button></div>
+				<p class="hint small" id="al-wf-note" hidden></p>
+				<div class="wf-grid">
+					<div class="wf-rules" id="al-wf-list" role="listbox" aria-label="Alerts"></div>
+					<div class="wf-canvas" id="al-wf-canvas"></div>
+					<div class="wf-props" id="al-wf-props"></div>
+				</div>
+			</div>
+			<table class="acap-table stack al-table" id="al-table-view">
 				<colgroup><col class="c-on"><col><col class="c-to"><col class="c-st"><col class="c-act"></colgroup>
 				<thead><tr><th></th><th>Alert</th><th>Send to</th><th>Status</th><th></th></tr></thead>
 				<tbody id="al-rows"><tr><td colspan="5" class="hint">Reading…</td></tr></tbody>
 			</table>
-			<p class="hint small al-foot">Point at a status for details. Test sends On, then Off 3 s later, to each Send to.</p>
+			<p class="hint small al-foot" id="al-foot">Point at a status for details. Test sends On, then Off 3 s later, to each Send to.</p>
 		</div>
 		<section class="acap-panel" id="al-log" hidden>
 			<div class="log-head">
@@ -292,10 +302,37 @@
 			<tr><td>Name</td><td><input type="text" id="ae-name" maxlength="63" placeholder="e.g. CPU high" aria-label="Name"></td></tr>
 			<tr><td>When</td><td><div class="al-when"><select id="ae-metric" aria-label="What to watch"></select><select id="ae-op" aria-label="Above or below"><option value="above">above</option><option value="below">below</option></select><input type="number" id="ae-value" step="any" aria-label="Limit"><span class="al-unit" id="ae-unit"></span><span class="al-unit">for</span><input type="number" id="ae-for" min="0" step="1" aria-label="For how long"><select id="ae-forunit" aria-label="Seconds or minutes"><option value="1">s</option><option value="60">min</option></select></div><div class="hint small" id="ae-now"></div></td></tr>
 			<tr><td>Send to</td><td><div id="ae-to"></div></td></tr>
+			<tr><td>Context</td><td><div class="ctx-line"><code id="ae-ctx"></code><button type="button" class="btn" id="ae-ctx-edit">Edit context…</button></div><div class="hint small" id="ae-ctx-next"></div></td></tr>
 			<tr><td>Enabled</td><td><label class="switch"><input type="checkbox" id="ae-on" aria-label="Enabled"><span class="track"></span></label></td></tr>
 		</tbody></table>
 		<p class="msg bad" id="ae-msg" hidden></p>
 		<div class="actions"><button type="button" class="btn subtle danger al-del" id="ae-del">Delete alert</button><button type="button" class="btn" id="ae-cancel">Cancel</button><button type="button" class="btn primary" id="ae-save">Save</button></div>
+	</div>
+</div>
+<!-- 1.6.3 Context: the text an alert sends, with fields, formulas and a counter (Data Bender's editor) -->
+<div class="overlay" id="dlg-ctx" hidden>
+	<div class="dialog ctx-dlg" role="dialog" aria-modal="true" aria-labelledby="ctx-h">
+		<h3 id="ctx-h">Context</h3>
+		<label class="ctx-l" for="ctx-text">Text</label>
+		<textarea id="ctx-text" maxlength="300" placeholder="e.g. {alert} #{count} on {camera}: {value} {unit} (limit {limit} {unit})"></textarea>
+		<div class="ctx-l">Fields and formulas (click to add)</div>
+		<div class="tokens" id="ctx-tokens"></div>
+		<div class="ctx-l">Counter ({count}): goes up each time the alert turns On</div>
+		<div class="ctx-ctr">
+			<label><span>Start at</span><input type="text" id="ctx-start" inputmode="decimal"></label>
+			<label><span>Add each time</span><input type="text" id="ctx-step" inputmode="decimal"></label>
+			<label><span>Reset</span><select id="ctx-reset"><option value="daily">Every day at midnight</option><option value="hourly">Every hour</option><option value="never">Never</option><option value="save">When the alert is saved</option></select></label>
+		</div>
+		<div class="preview"><small>The next On would send</small><span id="ctx-preview">—</span></div>
+		<div class="actions"><button type="button" class="btn subtle" id="ctx-clear">Clear context</button><span class="al-grow"></span><button type="button" class="btn" id="ctx-cancel">Cancel</button><button type="button" class="btn primary" id="ctx-done">Done</button></div>
+	</div>
+</div>
+<!-- 1.6.3 Import alerts: replace or add -->
+<div class="overlay" id="dlg-imp" hidden>
+	<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="imp-h" style="width:min(500px,100%)">
+		<h3 id="imp-h">Import alerts</h3>
+		<p id="imp-p"></p>
+		<div class="actions"><button type="button" class="btn" id="imp-cancel">Cancel</button><span class="al-grow"></span><button type="button" class="btn" id="imp-add">Add to these alerts</button><button type="button" class="btn primary" id="imp-replace">Replace these alerts</button></div>
 	</div>
 </div>
 <!-- Ask first: Stop / Start / Restart, and Clear log -->

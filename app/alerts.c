@@ -5,6 +5,9 @@
  *                           "value":85, "for":30, "approval":false,
  *                           "to":{"event":true,"mqtt":false,"influx":false,"prom":false}}, ...]}
  *   1.5.0 "to": where the alert goes (Send to). A file without it means the camera event only.
+ *   1.6.3 "context": {"text":"...{value}...", "start":1, "step":1, "reset":"daily"|"hourly"|"never"|"save"}: the
+ *   alert's own Context text (formulas as in Data Bender, context.c). None = the built-in text. Its counter is kept
+ *   in localdata/alert-counters.json.
  *
  * Each enabled alert declares one stateful event (tnsaxis:CameraApplicationPlatform/resource_monitor/<id>, shown
  * under "Resource Monitor" with the alert's name), active as the only state and a Context text as data, the way
@@ -29,8 +32,12 @@
 #include "prom.h"
 #include "config.h"
 #include "sendout.h"
+#include "context.h"
 
 #define APP_PACKAGE  "resource_monitor"
+#define COUNTERS_FILE "localdata/alert-counters.json"
+#define CTX_MAX      256        /* the Context sent (camera event, MQTT, InfluxDB) */
+#define TMPL_MAX     320        /* an alert's own Context text, before it is filled in */
 #define APP_NAME     "Resource Monitor"
 #define ALERTS_FILE  "localdata/alerts.json"
 #define LOG_FILE     "localdata/alerts-log.json"
@@ -65,7 +72,14 @@ typedef struct {
 	int on, metric, above, forSec, approval;
 	unsigned to;                 /* TO_*: where it goes */
 	double value;
+	char tmpl[TMPL_MAX];         /* 1.6.3: its own Context text; "" = the built-in text */
+	double ctrStart, ctrStep;    /* {count}: the first value and what is added each time it turns On */
+	int ctrReset;                /* 0 never, 1 every day at midnight, 2 every hour, 3 when the alert is saved */
 	/* running (main loop, behind mu) */
+	double cnt;                  /* the counter's last value used */
+	long ctrPeriod;              /* the day or hour that value belongs to */
+	int ctrStarted;
+	char lastCtx[CTX_MAX];       /* the Context last sent, for the log */
 	guint declId;
 	int declared, sent;          /* sent: last active value sent as a camera event, -1 none yet */
 	int outActive;               /* the last state sent to the other ways out (MQTT, InfluxDB, Prometheus), -1 none */
@@ -117,6 +131,7 @@ static void log_line(const Alert* a, const char* what, int sentVal, unsigned mas
 		cJSON* to = cJSON_AddArrayToObject(e, "to");           /* 1.5.0: every way out it went to */
 		for (int i = 0; i < 4; i++) if (mask & (1u << i)) cJSON_AddItemToArray(to, cJSON_CreateString(TO_WORD[i]));
 		cJSON_AddStringToObject(e, "state", sentVal ? "On" : "Off");
+		if (a->lastCtx[0]) cJSON_AddStringToObject(e, "context", a->lastCtx);   /* 1.6.3: exactly what went with it */
 	}
 	cJSON_AddStringToObject(e, "who", who && *who ? who : APP_NAME);
 	cJSON_AddItemToArray(logLines, e);
@@ -127,12 +142,99 @@ static void log_line(const Alert* a, const char* what, int sentVal, unsigned mas
 /*-----------------------------------------------------
  * Events (main loop only)
  *-----------------------------------------------------*/
-static void context_text(const Alert* a, int on, char* out, size_t n) {
+/* 1.6.3 {count}: a counter per alert that goes up each time it turns On (not on Test) */
+static long period_now(int reset) {
+	time_t t = time(NULL);
+	struct tm lt;
+	localtime_r(&t, &lt);
+	long day = (lt.tm_year + 1900) * 10000L + (lt.tm_mon + 1) * 100 + lt.tm_mday;
+	if (reset == 1) return day;
+	if (reset == 2) return day * 100 + lt.tm_hour;
+	return 0;
+}
+/* The value the next On would use, without counting it */
+static double counter_peek(const Alert* a) {
+	long p = period_now(a->ctrReset);
+	if (!a->ctrStarted || ((a->ctrReset == 1 || a->ctrReset == 2) && p != a->ctrPeriod)) return a->ctrStart;
+	return a->cnt + a->ctrStep;
+}
+/* The value in use now (the last On's), or the start before the first */
+static double counter_now(const Alert* a) {
+	long p = period_now(a->ctrReset);
+	if (!a->ctrStarted || ((a->ctrReset == 1 || a->ctrReset == 2) && p != a->ctrPeriod)) return a->ctrStart;
+	return a->cnt;
+}
+static void save_counters(void) {                        /* behind mu */
+	cJSON* all = cJSON_CreateObject();
+	for (int i = 0; i < count; i++) {
+		const Alert* a = list[i];
+		if (!a || !a->ctrStarted || !a->tmpl[0]) continue;
+		cJSON* c = cJSON_CreateObject();
+		cJSON_AddNumberToObject(c, "count", a->cnt);
+		cJSON_AddNumberToObject(c, "period", a->ctrPeriod);
+		cJSON_AddItemToObject(all, a->id, c);
+	}
+	ACAP_FILE_Write(COUNTERS_FILE, all);
+	cJSON_Delete(all);
+}
+static void counter_bump(Alert* a) {
+	a->cnt = counter_peek(a);
+	a->ctrPeriod = period_now(a->ctrReset);
+	a->ctrStarted = 1;
+	save_counters();
+}
+
+static void for_text(char* out, size_t n, int s) {
+	if (s >= 60 && s % 60 == 0) snprintf(out, n, "%d min", s / 60); else snprintf(out, n, "%d s", s);
+}
+
+/* The alert's own Context filled in: the fields of the page's Context editor */
+static void render_own(const Alert* a, int on, double cnt, char* out, size_t n) {
+	const char* model = ACAP_DEVICE_Prop("model");
+	const char* serial = ACAP_DEVICE_Prop("serial");
+	const char* ip = ACAP_DEVICE_Prop("IPv4");
+	const char* date = ACAP_DEVICE_Date();
+	const char* tm = ACAP_DEVICE_Time();
+	char forS[24];
+	for_text(forS, sizeof(forS), a->forSec);
+	int m = a->metric >= 0 && a->metric < METRICS ? a->metric : 0;
+	double v = isnan(a->now) ? 0 : round(a->now * 10) / 10;
+	CtxVar vars[] = {
+		{ "value", isnan(a->now) ? "no reading" : NULL, v, !isnan(a->now) },
+		{ "limit", NULL, a->value, 1 },
+		{ "unit", MET[m].unit, 0, 0 },
+		{ "reading", MET[m].name, 0, 0 },
+		{ "alert", a->name[0] ? a->name : a->id, 0, 0 },
+		{ "state", on ? "On" : "Off", 0, 0 },
+		{ "for", forS, 0, 0 },
+		{ "count", NULL, cnt, 1 },
+		{ "time", tm ? tm : "", 0, 0 },
+		{ "date", date ? date : "", 0, 0 },
+		{ "camera", model ? model : "", 0, 0 },
+		{ "serial", serial ? serial : "", 0, 0 },
+		{ "ip", ip ? ip : "", 0, 0 },
+	};
+	gchar* t = ctx_render(a->tmpl, vars, (int)(sizeof(vars) / sizeof(vars[0])));
+	g_strlcpy(out, t ? t : "", n);
+	g_free(t);
+}
+
+/* What goes with the event. bump: a real On, so its counter goes up first. */
+static void context_text(Alert* a, int on, int bump, char* out, size_t n) {
+	if (a->tmpl[0]) {
+		if (bump) counter_bump(a);
+		render_own(a, on, counter_now(a), out, n);
+		return;
+	}
 	char v[32], lim[32];
 	fmt_val(v, sizeof(v), a->metric, a->now);
 	fmt_val(lim, sizeof(lim), a->metric, a->value);
 	if (on) snprintf(out, n, "%s %s (%s %s for %d s)", MET[a->metric].name, v, opw(a), lim, a->forSec);
 	else snprintf(out, n, "%s %s (back to normal)", MET[a->metric].name, v);
+}
+/* Test: the alert's own Context with the next count (which does not move), or just "Test" */
+static void test_text(Alert* a, int on, char* out, size_t n) {
+	if (a->tmpl[0]) render_own(a, on, counter_peek(a), out, n); else g_strlcpy(out, "Test", n);
 }
 
 static int send_event(Alert* a, int on, const char* ctx) {
@@ -160,6 +262,7 @@ static int send_event(Alert* a, int on, const char* ctx) {
  * published; MQTT and InfluxDB are queued for the send-out thread (sent only while that way is on in Settings). */
 static unsigned send_out(Alert* a, int on, const char* ctx) {
 	unsigned m = 0;
+	g_strlcpy(a->lastCtx, ctx ? ctx : "", sizeof(a->lastCtx));
 	if ((a->to & TO_EVENT) && send_event(a, on, ctx)) m |= TO_EVENT;
 	if (a->to & TO_MQTT) { sendout_alert_mqtt(a->id, a->name, on, ctx); m |= TO_MQTT; }
 	if (a->to & TO_INFLUX) { sendout_alert_influx(a->id, a->name, on, ctx); m |= TO_INFLUX; }
@@ -178,8 +281,8 @@ static void declared_cb(guint decl, gpointer user_data) {
 		if (a->declId != decl) continue;
 		a->declared = 1;
 		/* Tell subscribers the current state (Off, or On if it already triggered while declaring) */
-		char ctx[160];
-		context_text(a, a->state == ST_TRIG, ctx, sizeof(ctx));
+		char ctx[CTX_MAX];
+		context_text(a, a->state == ST_TRIG, 0, ctx, sizeof(ctx));
 		send_event(a, a->state == ST_TRIG, ctx);
 		log_line(a, "Event published; current state announced", a->state == ST_TRIG, TO_EVENT, NULL);
 	}
@@ -236,8 +339,8 @@ static gboolean test_off(gpointer user_data) {
 		a->testTimer = 0;
 		a->testing = 0;
 		int back = a->state == ST_TRIG;          /* back to the real state */
-		char ctx[160];
-		if (back) context_text(a, 1, ctx, sizeof(ctx)); else g_strlcpy(ctx, "Test", sizeof(ctx));
+		char ctx[CTX_MAX];
+		if (back) context_text(a, 1, 0, ctx, sizeof(ctx)); else test_text(a, 0, ctx, sizeof(ctx));
 		unsigned m = send_out(a, back, ctx);
 		if (m) log_line(a, back ? "Test over: back to its real state (Triggered)" : "Test: sent Off", back, m, NULL);
 	}
@@ -306,6 +409,24 @@ static gchar* parse(const cJSON* in, Alert** out, int* n) {
 		} else a->to = TO_EVENT;                          /* before 1.5.0: the camera event only */
 		a->value = cJSON_IsNumber(v) ? v->valuedouble : NAN;
 		a->forSec = cJSON_IsNumber(f) ? (int)f->valuedouble : 30;
+		/* 1.6.3: its own Context, with a counter */
+		a->ctrStart = 1; a->ctrStep = 1; a->ctrReset = 1;
+		const cJSON* cx = cJSON_GetObjectItem(it, "context");
+		if (cJSON_IsObject(cx)) {
+			const char* ct = cJSON_GetStringValue(cJSON_GetObjectItem(cx, "text"));
+			gchar* t = g_strstrip(g_strdup(ct ? ct : ""));
+			for (gchar* q = t; *q; q++) if ((unsigned char)*q < 0x20) *q = ' ';   /* one line */
+			gboolean tooLong = strlen(t) >= sizeof(a->tmpl);
+			if (!tooLong) g_strlcpy(a->tmpl, t, sizeof(a->tmpl));
+			g_free(t);
+			if (tooLong) { why = g_strdup_printf("Alert %d: the Context is too long (at most %zu characters).", pos, sizeof(a->tmpl) - 1); break; }
+			const cJSON* cs = cJSON_GetObjectItem(cx, "start");
+			const cJSON* cp = cJSON_GetObjectItem(cx, "step");
+			if (cJSON_IsNumber(cs) && fabs(cs->valuedouble) < 1e12) a->ctrStart = cs->valuedouble;
+			if (cJSON_IsNumber(cp) && fabs(cp->valuedouble) < 1e12) a->ctrStep = cp->valuedouble;
+			const char* rs = cJSON_GetStringValue(cJSON_GetObjectItem(cx, "reset"));
+			a->ctrReset = !rs || !strcmp(rs, "daily") ? 1 : !strcmp(rs, "hourly") ? 2 : !strcmp(rs, "save") ? 3 : 0;
+		}
 		/* An alert that is switched off may be saved unfinished */
 		if (!a->on) { if (a->metric < 0) a->metric = 0; if (isnan(a->value)) a->value = 0; if (a->forSec < 0 || a->forSec > 3600) a->forSec = 30; continue; }
 		const char* label = *a->name ? a->name : a->id;
@@ -334,6 +455,14 @@ static cJSON* saved_json(const Alert* a) {
 	cJSON_AddBoolToObject(to, "mqtt", (a->to & TO_MQTT) != 0);
 	cJSON_AddBoolToObject(to, "influx", (a->to & TO_INFLUX) != 0);
 	cJSON_AddBoolToObject(to, "prom", (a->to & TO_PROM) != 0);
+	if (a->tmpl[0]) {                                     /* 1.6.3 */
+		static const char* RESET[] = { "never", "daily", "hourly", "save" };
+		cJSON* c = cJSON_AddObjectToObject(o, "context");
+		cJSON_AddStringToObject(c, "text", a->tmpl);
+		cJSON_AddNumberToObject(c, "start", a->ctrStart);
+		cJSON_AddNumberToObject(c, "step", a->ctrStep);
+		cJSON_AddStringToObject(c, "reset", RESET[a->ctrReset & 3]);
+	}
 	return o;
 }
 
@@ -382,13 +511,25 @@ void alerts_init(AlertsNeed need) {
 		cJSON_Delete(in);
 		g_free(txt);
 	}
+	cJSON* ctr = ACAP_FILE_Read(COUNTERS_FILE);              /* 1.6.3: counters carry on across restarts */
+	for (int i = 0; cJSON_IsObject(ctr) && i < count; i++) {
+		const cJSON* c = cJSON_GetObjectItem(ctr, list[i]->id);
+		const cJSON* cv = cJSON_IsObject(c) ? cJSON_GetObjectItem(c, "count") : NULL;
+		const cJSON* cp = cJSON_IsObject(c) ? cJSON_GetObjectItem(c, "period") : NULL;
+		if (!cJSON_IsNumber(cv) || !list[i]->tmpl[0]) continue;
+		list[i]->cnt = cv->valuedouble;
+		list[i]->ctrPeriod = cJSON_IsNumber(cp) ? (long)cp->valuedouble : 0;
+		list[i]->ctrStarted = 1;
+	}
+	cJSON_Delete(ctr);
 	needSync = TRUE;
 	if (needFn) needFn(groups_needed());
 }
 
 /* Nothing changed, so it carries on as it is */
 static gboolean same_rule(const Alert* a, const Alert* b) {
-	return !strcmp(a->id, b->id) && !strcmp(a->name, b->name) && a->on == b->on && a->metric == b->metric && a->above == b->above && a->value == b->value && a->forSec == b->forSec && a->approval == b->approval && a->to == b->to;
+	return !strcmp(a->id, b->id) && !strcmp(a->name, b->name) && a->on == b->on && a->metric == b->metric && a->above == b->above && a->value == b->value && a->forSec == b->forSec && a->approval == b->approval && a->to == b->to &&
+		!strcmp(a->tmpl, b->tmpl) && a->ctrStart == b->ctrStart && a->ctrStep == b->ctrStep && a->ctrReset == b->ctrReset;
 }
 
 static GPtrArray* oldList = NULL;                         /* replaced or removed alerts, for the main loop to undeclare and free */
@@ -414,6 +555,8 @@ gchar* alerts_save(const cJSON* in, const char* who) {
 			was->outActive = -1;                             /* the old copy must not send Off for the one carrying on */
 		} else {
 			reset_run(a);
+			/* 1.6.3: the counter carries on, unless it is set to start again when the alert is saved */
+			if (was && a->ctrReset != 3) { a->cnt = was->cnt; a->ctrPeriod = was->ctrPeriod; a->ctrStarted = was->ctrStarted; }
 			log_line(a, was ? "Changed and saved" : "Added", -1, 0, who);
 		}
 		if (was) { g_ptr_array_add(oldList, was); list[wj] = NULL; }
@@ -425,6 +568,7 @@ gchar* alerts_save(const cJSON* in, const char* who) {
 	}
 	count = n;
 	for (int i = 0; i < n; i++) list[i] = l[i];
+	save_counters();                                      /* 1.6.3: removed alerts and restarted counters drop out */
 	needSync = TRUE;
 	unsigned g = groups_needed();
 	g_rec_mutex_unlock(&mu);
@@ -479,8 +623,8 @@ static void run_acts(void) {                              /* behind mu */
 		Alert* a = NULL;
 		for (int i = 0; i < count; i++) if (!strcmp(list[i]->id, x->id)) a = list[i];
 		if (a && x->action == 1 && a->state == ST_WAIT) {
-			char ctx[160];
-			context_text(a, 1, ctx, sizeof(ctx));
+			char ctx[CTX_MAX];
+			context_text(a, 1, 1, ctx, sizeof(ctx));
 			g_strlcpy(a->who, x->who, sizeof(a->who));
 			become(a, ST_TRIG);
 			unsigned m = send_out(a, 1, ctx);
@@ -492,7 +636,9 @@ static void run_acts(void) {                              /* behind mu */
 		} else if (a && x->action == 3 && a->on && (a->declared || !(a->to & TO_EVENT))) {
 			if (a->testTimer) g_source_remove(a->testTimer);
 			a->testing = 1;
-			unsigned m = send_out(a, 1, "Test");
+			char tctx[CTX_MAX];
+			test_text(a, 1, tctx, sizeof(tctx));
+			unsigned m = send_out(a, 1, tctx);
 			if (m) log_line(a, "Test: sent On (Off follows in 3 s)", 1, m, x->who);
 			a->testTimer = g_timeout_add_full(G_PRIORITY_DEFAULT, TEST_MS, test_off, g_strdup(a->id), g_free);
 		}
@@ -526,8 +672,8 @@ void alerts_tick(void) {
 			 * so a stop, crash or self-restart while On is not left On there */
 			if (a->on && (a->to & (TO_MQTT | TO_INFLUX)) && a->outActive < 0) {
 				int on = a->state == ST_TRIG;
-				char ctx[160];
-				context_text(a, on, ctx, sizeof(ctx));
+				char ctx[CTX_MAX];
+				context_text(a, on, 0, ctx, sizeof(ctx));
 				if (a->to & TO_MQTT) sendout_alert_mqtt(a->id, a->name, on, on ? ctx : "");
 				if (a->to & TO_INFLUX) sendout_alert_influx(a->id, a->name, on, on ? ctx : "Current state (Resource Monitor started or the alert was saved)");
 				a->outActive = on;
@@ -549,7 +695,7 @@ void alerts_tick(void) {
 			if (!a->on) continue;
 			a->now = reading(p, a->metric);
 			if (isnan(a->now)) {
-				if (a->state != ST_PROBLEM) { g_strlcpy(a->problem, "No reading right now (is it collected? see Settings, What to collect)", sizeof(a->problem)); if (a->state == ST_TRIG) { char ctx[160]; context_text(a, 0, ctx, sizeof(ctx)); unsigned m = send_out(a, 0, ctx); log_line(a, "No reading: sent Off", 0, m, NULL); } become(a, ST_PROBLEM); a->settled = a->raw = 0; }
+				if (a->state != ST_PROBLEM) { g_strlcpy(a->problem, "No reading right now (is it collected? see Settings, What to collect)", sizeof(a->problem)); if (a->state == ST_TRIG) { char ctx[CTX_MAX]; context_text(a, 0, 0, ctx, sizeof(ctx)); unsigned m = send_out(a, 0, ctx); log_line(a, "No reading: sent Off", 0, m, NULL); } become(a, ST_PROBLEM); a->settled = a->raw = 0; }
 				continue;
 			}
 			if (a->state == ST_PROBLEM && (a->declared || !(a->to & TO_EVENT))) { a->problem[0] = 0; become(a, ST_LISTEN); a->rawSince = mono; }
@@ -558,7 +704,7 @@ void alerts_tick(void) {
 			int wait = raw ? a->forSec : MAX(a->forSec, CLEAR_MIN);
 			if (a->raw == a->settled || mono - a->rawSince < (gint64)wait * G_USEC_PER_SEC) continue;
 			a->settled = a->raw;
-			char ctx[160], v[32];
+			char ctx[CTX_MAX], v[32];
 			fmt_val(v, sizeof(v), a->metric, a->now);
 			if (a->settled) {
 				if (a->approval) {
@@ -568,7 +714,7 @@ void alerts_tick(void) {
 					g_free(w);
 				} else {
 					become(a, ST_TRIG);
-					context_text(a, 1, ctx, sizeof(ctx));
+					context_text(a, 1, 1, ctx, sizeof(ctx));
 					unsigned m = send_out(a, 1, ctx);
 					gchar* w = g_strdup_printf("Over the limit (%s)%s", v, event_failed(a, m) ? ": the camera event could not be sent" : "");
 					log_line(a, w, m ? 1 : -1, m, NULL);
@@ -580,7 +726,7 @@ void alerts_tick(void) {
 				a->who[0] = 0;
 				gchar* w = g_strdup_printf("Back to normal (%s)%s", v, was == ST_WAIT ? ": no one decided, nothing was sent" : was == ST_REJECT ? "" : "");
 				if (was == ST_TRIG) {
-					context_text(a, 0, ctx, sizeof(ctx));
+					context_text(a, 0, 0, ctx, sizeof(ctx));
 					unsigned m = send_out(a, 0, ctx);
 					log_line(a, w, m ? 0 : -1, m, NULL);
 				} else {
@@ -683,4 +829,50 @@ char* alerts_prom(void) {
 	}
 	g_rec_mutex_unlock(&mu);
 	return g ? g_string_free(g, FALSE) : NULL;
+}
+
+/* 1.6.3: the Context editor's preview: {id?, name, metric, op, value, for, context:{text, start, step, reset}}
+ * gives {text, count}: what the next On would send, with the reading now. */
+cJSON* alerts_preview(const cJSON* in) {
+	Alert* t = g_new0(Alert, 1);
+	const char* name = cJSON_GetStringValue(cJSON_GetObjectItem(in, "name"));
+	g_strlcpy(t->name, name ? name : "", sizeof(t->name));
+	g_strlcpy(t->id, "preview", sizeof(t->id));
+	t->metric = metric_of(cJSON_GetStringValue(cJSON_GetObjectItem(in, "metric")));
+	if (t->metric < 0) t->metric = 0;
+	const char* op = cJSON_GetStringValue(cJSON_GetObjectItem(in, "op"));
+	t->above = !op || strcmp(op, "below") != 0;
+	const cJSON* v = cJSON_GetObjectItem(in, "value");
+	const cJSON* f = cJSON_GetObjectItem(in, "for");
+	t->value = cJSON_IsNumber(v) ? v->valuedouble : 0;
+	t->forSec = cJSON_IsNumber(f) ? (int)f->valuedouble : 0;
+	t->ctrStart = 1; t->ctrStep = 1; t->ctrReset = 1;
+	const cJSON* cx = cJSON_GetObjectItem(in, "context");
+	const char* text = cJSON_IsObject(cx) ? cJSON_GetStringValue(cJSON_GetObjectItem(cx, "text")) : NULL;
+	g_strlcpy(t->tmpl, text ? text : "", sizeof(t->tmpl));
+	const cJSON* cs = cJSON_IsObject(cx) ? cJSON_GetObjectItem(cx, "start") : NULL;
+	if (cJSON_IsNumber(cs)) t->ctrStart = cs->valuedouble;
+	/* The reading now; and the saved alert's next count, if it is that alert */
+	PromSnap* p = g_new0(PromSnap, 1);
+	sampler_snapshot(p, 0);
+	t->now = reading(p, t->metric);
+	g_free(p);
+	double cnt = t->ctrStart;
+	const char* id = cJSON_GetStringValue(cJSON_GetObjectItem(in, "id"));
+	g_rec_mutex_lock(&mu);
+	for (int i = 0; id && i < count; i++) {
+		if (strcmp(list[i]->id, id)) continue;
+		Alert c = *list[i];                                /* its counter, with the start being edited */
+		c.ctrStart = t->ctrStart;
+		cnt = counter_peek(&c);
+	}
+	g_rec_mutex_unlock(&mu);
+	char out[CTX_MAX];
+	if (t->tmpl[0]) render_own(t, 1, cnt, out, sizeof(out)); else context_text(t, 1, 0, out, sizeof(out));
+	cJSON* o = cJSON_CreateObject();
+	cJSON_AddStringToObject(o, "text", out);
+	cJSON_AddNumberToObject(o, "count", cnt);
+	cJSON_AddBoolToObject(o, "ok", TRUE);
+	g_free(t);
+	return o;
 }

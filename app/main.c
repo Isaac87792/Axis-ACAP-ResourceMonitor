@@ -484,6 +484,14 @@ static void HTTP_alertact(ACAP_HTTP_Response response, const ACAP_HTTP_Request r
 	cJSON_Delete(in);
 	answer(response, why);
 }
+/* 1.6.3: the Context editor's preview (viewer: it only reads) */
+static void HTTP_alertpreview(ACAP_HTTP_Response response, const ACAP_HTTP_Request request) {
+	cJSON* in = post_json(request);
+	if (!in) { cJSON* o = cJSON_CreateObject(); cJSON_AddBoolToObject(o, "ok", FALSE); cJSON_AddStringToObject(o, "error", "Send the alert as JSON with POST."); respond(response, o); return; }
+	cJSON* out = alerts_preview(in);
+	cJSON_Delete(in);
+	respond(response, out);
+}
 static void log_sendout(const char* what) { log_add("Resource Monitor", what, "Resource Monitor"); }
 
 /*-----------------------------------------------------
@@ -570,6 +578,7 @@ int main(void) {
 	ACAP_HTTP_Node("alerts", HTTP_alerts);
 	ACAP_HTTP_Node("alertset", HTTP_alertset);
 	ACAP_HTTP_Node("alertact", HTTP_alertact);
+	ACAP_HTTP_Node("alertpreview", HTTP_alertpreview);
 	alerts_init(sampler_set_need);
 	{
 		cJSON* dev = ACAP_Get_Config("device");
