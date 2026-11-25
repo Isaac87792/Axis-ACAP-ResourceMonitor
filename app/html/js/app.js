@@ -10,6 +10,17 @@ const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = v => (v == null || isNaN(v)) ? NaN : +v;
+/* 1.6.5: no hover popups anywhere in the tool: every
+ * title attribute is taken off as soon as it appears, so nothing shows a tooltip. Explanations are in the (i) buttons. */
+(function noTitles() {
+	const strip = n => { if (n.nodeType !== 1) return; if (n.hasAttribute('title')) n.removeAttribute('title'); n.querySelectorAll('[title]').forEach(e => e.removeAttribute('title')); };
+	const go = () => {
+		strip(document.documentElement);
+		new MutationObserver(ms => ms.forEach(m => { if (m.type === 'attributes') { if (m.target.hasAttribute('title')) m.target.removeAttribute('title'); } else m.addedNodes.forEach(strip); }))
+			.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
+	};
+	if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+})();
 const BRAND = '#ffcc33', TOTAL = '#d6d6d6', RX = '#3b8eea', TX = '#b88400', TEMP = '#f5a623';
 const C = { blue: '#3b8eea', amber: '#b88400', teal: '#2ab3a6', violet: '#9d7be6', warn: '#e3a008', danger: '#f0605d', grey: '#8a8a8a' };
 const PAL = [BRAND, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];       /* one colour per sensor */
@@ -833,7 +844,7 @@ function drawHist() {
 	const X = t => clamp((t - t0) / secs * W, 0, W);
 	const kind = topKind(sel, P.some(p => p.netTop)), usualOf = usual(P, kind.list);
 	const keptNote = hist.kept < secs ? 'History starts when Resource Monitor starts (' + fmtAge(hist.kept) + ' kept so far). ' : '';
-	const foot = kindNote => evStrip(t0, secs) + '<div class="chart-note"><span>' + spanAgo(secs) + '</span><span>' + (hist.source === 'camera' ? 'From the camera\'s own power log: one point every ' + fmtStep(hist.step) + '.' : keptNote + kindNote + 'Each point is ' + fmtStep(hist.step) + ', keeping its peak. ' + (S.now.settings && S.now.settings.onCard ? 'History is kept on the SD card for ' + spanName(S.now.settings.historyDays * 86400) + ' and survives restarts.' : S.now.settings && S.now.settings.onFlash ? 'History is kept on the camera\'s built-in flash for 24 h and survives restarts.' : 'History is kept in memory for 24 h and starts again if the app or camera restarts.')) + '</span><span>Now</span></div>' +
+	const foot = kindNote => '<div class="chart-note"><span>' + spanAgo(secs) + '</span><span>' + (hist.source === 'camera' ? 'From the camera\'s own power log: one point every ' + fmtStep(hist.step) + '.' : keptNote + kindNote + 'Each point is ' + fmtStep(hist.step) + ', keeping its peak. ' + (S.now.settings && S.now.settings.onCard ? 'History is kept on the SD card for ' + spanName(S.now.settings.historyDays * 86400) + ' and survives restarts.' : S.now.settings && S.now.settings.onFlash ? 'History is kept on the camera\'s built-in flash for 24 h and survives restarts.' : 'History is kept in memory for 24 h and starts again if the app or camera restarts.')) + '</span><span>Now</span></div>' +
 		(secs > 86400 && !kind.none ? '<div class="hint small hist-help">The top 10 lists are kept for the last 24 h only.</div>' : '');
 	if (sel === 'cpu' && cpuParent === 'cores') {
 		/* Each core: a small graph per core, with the label the live tiles have */
@@ -993,7 +1004,7 @@ function drawOverview() {
 	const s = S.last || {}, n = S.now, P = (ovHist && ovHist.points) || [], f = fullest(), h = hottest();
 	const col = k => P.map(k), okv = a => a.filter(v => v != null && !isNaN(v));
 	const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN;
-	const tile = (k, label, value, detail, graph, share) => '<a class="d-tile" href="#' + k + '" data-go="' + k + '" title="Open ' + esc(label) + '"><div class="d-h"><span class="d-l">' + esc(label) + '</span><span class="d-r">Last minute</span></div>' +
+	const tile = (k, label, value, detail, graph, share) => '<a class="d-tile" href="#' + k + '" data-go="' + k + '"><div class="d-h"><span class="d-l">' + esc(label) + '</span><span class="d-r">Last minute</span></div>' +
 		'<div class="d-v">' + unitHtml(value) + '</div><div class="d-s">' + esc(detail) + '</div>' + graph + (share || '') + '</a>';
 	const share = (title, cam, app, camTxt, appTxt) => '<div class="d-share" title="' + esc(title) + '"><span class="sh-cam" style="width:' + clamp(num(cam) || 0, 0, 100).toFixed(1) + '%"></span><span class="sh-app" style="width:' + clamp(num(app) || 0, 0, 100).toFixed(1) + '%"></span></div>' +
 		'<div class="d-share-k"><span><i class="k-cam"></i>Camera ' + esc(camTxt) + '</span><span><i class="k-app"></i>Apps ' + esc(appTxt) + '</span></div>';
@@ -1094,7 +1105,8 @@ window.addEventListener('resize', fitTiles);
 let ntpDue = null;
 function hms(s) { s = Math.max(0, Math.round(s)); return [s / 3600 | 0, (s % 3600) / 60 | 0, s % 60].map(x => String(x).padStart(2, '0')).join(':'); }
 function kvRow(label, value, state, tip, id) {
-	const ic = state === 'warn' ? '<span class="kv-i warn" title="' + esc(tip || '') + '">⚠</span>' : state === 'ok' ? '<span class="kv-i ok">✓</span>' : '<span></span>';
+	/* 1.6.5: the camera's advice for a warning is in an (i) next to it, not a hover popup */
+	const ic = state === 'warn' ? '<span class="kv-i warn">⚠' + (tip ? '<button type="button" class="kit-info" data-help-title="' + esc(label) + '" data-help="' + esc(tip) + '" aria-label="Help: ' + esc(label) + '" aria-expanded="false">i</button>' : '') + '</span>' : state === 'ok' ? '<span class="kv-i ok">✓</span>' : '<span></span>';
 	return '<div class="kv"><span class="kv-l">' + esc(label) + '</span><span class="kv-v"' + (id ? ' id="' + id + '"' : '') + '>' + value + '</span>' + ic + '</div>';
 }
 function drawCamStatus() {
@@ -1215,49 +1227,6 @@ function streamsSummary(ss) {
 const streamKey = s => [mediaKind(s), s.resolution || '', s.codec || '', mimeSub(s)].join(' ') + '|' + s.dst + (s.dstPort ? ':' + s.dstPort : '');
 /* The player, shortened: "VLC/3.0.20 LibVLC/3.0.20" is "VLC 3.0.20"; the full text is in the hover */
 function playerName(a) { const m = /^([^/]+)\/(\S+)/.exec(a || ''); return m ? m[1].trim() + ' ' + m[2] : (a || ''); }
-/* Audit log events as small marks under a 1 h / 24 h graph (hover: time and what happened) */
-/* 1.6.1 A click on an event dot shows what the camera's audit log says about it */
-let EVS = [];
-const EV_SVC = { httpd: 'Web server', acapmanager: 'App manager', sshd: 'SSH', systemd: 'System', firmwaremanager: 'Firmware manager', fwmgr: 'Firmware manager' };
-const evHide = () => $$('.ftip[data-owner="ev"]').forEach(x => { x.hidden = true; });
-function evDetail(dot) {
-	const e = EVS[+dot.dataset.k];
-	if (!e) return;
-	const tip = makeTip('ev'), r = dot.getBoundingClientRect(), cls = 'ev ev-inline ev-' + e.kind.toLowerCase().replace(/[^a-z]+/g, '-');
-	const local = e.from === '127.0.0.1' || e.from === '::1';
-	const row = (l, v) => v ? '<tr><td>' + esc(l) + '</td><td>' + esc(v) + '</td></tr>' : '';
-	tip.innerHTML = '<div class="ev-tip-h"><span class="' + cls + '"></span><b>' + esc(e.kind) + '</b><span class="ev-tip-t">' + esc(new Date(e.t * 1000).toLocaleString()) + '</span></div><table class="ev-tip">' +
-		row('Who', e.user || 'Not named') + row('From', e.from ? (local ? 'This camera (an app on it)' : e.from) : '') +
-		row('Logged by', e.service ? (EV_SVC[e.service] || e.service) + (e.area ? ' · ' + e.area : '') : '') + row('What', e.what) +
-		'</table><div class="hint small">From the camera\'s audit log. Click outside or press Esc to close.</div>';
-	tip.hidden = false;
-	placeTip(tip, r.left + r.width / 2, r.top);
-}
-document.addEventListener('click', ev => {
-	const d = ev.target.closest && ev.target.closest('.ev[data-k]');
-	if (d) { evDetail(d); return; }
-	if (!(ev.target.closest && ev.target.closest('.ftip[data-owner="ev"]'))) evHide();
-});
-document.addEventListener('keydown', ev => {
-	if (ev.key === 'Escape') evHide();
-	else if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('.ev[data-k]')) evDetail(ev.target);
-});
-function evStrip(t0, secs) {
-	const ev = ((S.cam && S.cam.events) || []).filter(e => e.t >= t0 && e.t <= t0 + secs);
-	if (!shown(GB.events)) return '';
-	if (!ev.length) return '';
-	/* 1.6.1: dots that would touch go up a row (up to 4 rows), so no event hides under another */
-	const w = ($('#hist') && $('#hist').clientWidth) || 1000, gap = 11 / w * 100, ends = [];
-	const placed = ev.slice().sort((a, b) => a.t - b.t).map(e => {
-		const x = clamp((e.t - t0) / secs * 100, 0, 100);
-		let r = ends.findIndex(end => x - end >= gap);
-		if (r < 0) r = ends.length < 4 ? ends.length : ends.indexOf(Math.min(...ends));
-		ends[r] = x;
-		return { e, x, r };
-	});
-	EVS = placed.map(p => p.e);
-	return '<div class="ev-strip" aria-label="Camera events" style="height:' + (2 + ends.length * 10) + 'px">' + placed.map(({ e, x, r }) => '<span class="ev ev-' + esc(e.kind.toLowerCase().replace(/[^a-z]+/g, '-')) + '" data-k="' + EVS.indexOf(e) + '" role="button" tabindex="0" style="left:' + x.toFixed(2) + '%;top:' + (2 + r * 10) + 'px" title="' + esc(hhmm(e.t) + ' · ' + e.kind + (e.user ? ' · ' + e.user : '')) + '"></span>').join('') + '</div>';
-}
 /*---------------------------------------------------- Network › Connections */
 /* Connections and streams that stop stay 60 s as "stale" (dimmed, 0, "Stopped … ago"), then go; one that comes back within
    60 s is live again in the same row. Keyed by service + other end (+ port for streams). Kept here in the page. */
@@ -1474,7 +1443,6 @@ const GROUPS = [
 	['dlpu', 'AI chip', '/proc/interrupts'],
 	['procs', 'Processes (top 10 at each moment)', '/proc', 'never'],
 	['conns', 'Network per connection, and streams', 'TCP table, the camera\'s stream list', 'never'],
-	['events', 'Camera events', 'the camera\'s audit log', 'nometric']
 ];
 let setData = null, setForm = null;                     /* as loaded from the camera; as on the page now */
 const daysName = d => d === 30 ? '30 days' : d === 7 ? '7 days' : '24 h';
@@ -1497,16 +1465,15 @@ function drawSettings() {
 	const pick = powerPick(f, log);
 	$('#s-power').innerHTML = [['camera', 'Camera\'s power log (recommended)', log === 'no'], ['app', 'Recorded by Resource Monitor'], ['off', 'Off']]
 		.map(o => '<option value="' + o[0] + '"' + (o[0] === pick ? ' selected' : '') + (o[2] ? ' disabled' : '') + '>' + esc(o[2] ? 'Camera\'s power log (this camera keeps none)' : o[1]) + '</option>').join('');
-	$('#s-power-note').textContent = pick === 'camera' ? 'The camera keeps its own log: Power shows 1 h to 30 days from it, and Resource Monitor keeps no copy.'
-		: pick === 'app' ? 'Resource Monitor writes power into its own history' + (log === 'yes' ? ', even though the camera keeps a log.' : '.') : 'Power is not read, and the Power page is hidden.';
+	$('#s-power-note').textContent = '';   /* 1.6.4: what each choice does is in the row's (i) */
 	const ports = (S.now.power && S.now.power.kind === 'ports' && S.now.power.ports) || [];
 	$('#s-ports-row').hidden = !ports.length || pick === 'off';
 	$('#s-ports').innerHTML = ports.map(p => '<label class="set-port"><input type="checkbox" data-port="' + p.port + '"' + ((f.poePorts || []).includes(p.port) ? ' checked' : '') + '> Port ' + p.port + '</label>').join('');
 	/* History */
 	const okCard = card === 'ok', tiers = h.tiers || [], bytes = d => tiers.slice(0, d >= 30 ? 3 : d >= 7 ? 2 : 1).reduce((a, t) => a + (t.bytes || 0), 0);
 	$$('#s-days option').forEach(o => { const d = +o.value; o.disabled = d > 1 && !okCard; o.selected = d === f.historyDays; o.textContent = daysName(d) + (d > 1 && !okCard ? ' (needs an SD card)' : okCard ? ' (about ' + fmtMB(bytes(d)) + ' on the card)' : ''); });
-	$('#s-days-note').textContent = okCard ? (f.historyDays < setData.settings.historyDays ? 'Saving deletes history older than ' + daysName(f.historyDays) + ' from the card.' : 'Each file is set aside in full when made, so it never grows.')
-		: '7 and 30 days need an SD card. ' + (h.why || '');
+	/* 1.6.4: only what is true now stays here (a save that deletes, why there is no card); the rest is in the row's (i) */
+	$('#s-days-note').textContent = okCard ? (f.historyDays < setData.settings.historyDays ? 'Saving deletes history older than ' + daysName(f.historyDays) + ' from the card.' : '') : (h.why || '');
 	const where = h.where || (okCard ? 'card' : 'memory');
 	$('#s-where').innerHTML = where === 'card' ? '<span class="st-ok">SD card</span> <span class="set-note">survives restarts · written once a minute</span>'
 		: where === 'flash' ? '<span class="st-ok">Camera\'s built-in flash, 24 h, kept across restarts</span> <span class="set-note">written once a minute' + (h.flashBytes ? ', about ' + fmtMB(h.flashBytes) : '') + '; 7 and 30 days need an SD card</span>'
@@ -1736,7 +1703,8 @@ function alStatusHtml(a) {
 		: w === 'Triggered' ? 'Sent On since ' + since + '. Now ' + alFmt(a.metric, st.now) + '.'
 		: w === 'Disabled' ? 'Turned off: its event is not published.' : (st.problem || 'Something is wrong.');
 	return '<div class="al-st"><span class="status ' + (AL_ST[w] || 'idle') + '" title="' + esc(tip) + '">' + esc(w) + '</span>' +
-		(st.now != null && w !== 'Disabled' ? '<span class="al-now">now ' + esc(alFmt(a.metric, st.now)) + '</span>' : '') + '</div>';
+		(st.now != null && w !== 'Disabled' ? '<span class="al-now">now ' + esc(alFmt(a.metric, st.now)) + '</span>' : '') +
+		(w === 'Problem' && st.problem ? '<span class="al-now">' + esc(st.problem) + '</span>' : '') + '</div>';   /* 1.6.5: shown, not in a hover */
 }
 function drawAlerts() {
 	drawAlertsTile();
@@ -1842,7 +1810,7 @@ function drawAlertLog(toEnd) {
 const CTX_TOKENS = ['{value}', '{limit}', '{unit}', '{reading}', '{alert}', '{state}', '{for}', '{count}', '{time}', '{date}', '{camera}', '{serial}', '{ip}',
 	'{round(value, 1)}', '{pad(count, 4)}', '{upper(alert)}', '{if(value > 95, "critical", "high")}', '{if(state == "On", "ALARM", "clear")}'];
 const AL_HELP = {
-	alerts: 'An alert is a reading past its limit for a while, for example CPU busy above 90 % for 1 min.\nIt is sent as a camera event (for a VMS, or the camera\'s Events › Rules), or to MQTT, InfluxDB or Prometheus when those are on in Settings.\nTest sends On, then Off 3 s later, to each Send to. Point at a status for details.',
+	alerts: 'An alert is a reading past its limit for a while, for example CPU busy above 90 % for 1 min.\nIt is sent as a camera event (for a VMS, or the camera\'s Events › Rules), or to MQTT, InfluxDB or Prometheus when those are on in Settings.\nTest sends On, then Off 3 s later, to each Send to.',
 	context: 'The text sent with the alert\'s camera event, MQTT message and InfluxDB point. Left empty, it sends the reading and the limit, for example "CPU busy 95 % (above 90 % for 60 s)".\nFields: {value} the reading, {limit}, {unit}, {reading} (its name), {alert}, {state} (On or Off), {for}, {count}, {time}, {date}, {camera}, {serial}, {ip}.\nFormulas: + - * / %, round, pad, upper, lower and if(test, then, else), for example {if(value > 95, "critical", "high")}.',
 	when: 'What to watch, the limit, and how long the reading must stay past it before the alert turns On. It turns Off again when the reading is back (after at least 5 s).',
 	counter: '{count} goes up each time the alert turns On. Test does not move it. Reset picks when it starts again from Start at.'
@@ -1977,8 +1945,9 @@ function alWfChart(a) {
 		N.push([n[0], n[1], n[2], n[3], dia ? mid : top, n[4], h, n[6], n[7]]);
 		const side = n[8];
 		if (side) {
-			N.push([side[0], 'pill', 'end', 300, mid - 18, 96, 36, side[1], '']);
-			W.push(dia ? ['M215 ' + mid + ' L300 ' + mid, side[2], 238, mid - 7] : ['M265 ' + mid + ' L300 ' + mid, side[2], 262, mid - 8]);
+			/* 1.6.5: the side exits sit a little further right, so the label on a box's exit wire has room and is not on the box's edge */
+			N.push([side[0], 'pill', 'end', 310, mid - 18, 96, 36, side[1], '']);
+			W.push(dia ? ['M215 ' + mid + ' L310 ' + mid, side[2], 262, mid - 7, 1] : ['M265 ' + mid + ' L310 ' + mid, side[2], 287.5, mid - 7, 1]);
 		}
 		if (i < chain.length - 1) W.push(['M165 ' + (top + h) + ' L165 ' + (top + h + GAP), n[9], 172, top + h + 23]);
 		top += h + GAP;
@@ -2000,7 +1969,7 @@ function alWfChart(a) {
 			(t2 ? '<text class="sub" x="' + tx + '" y="' + (ty + 15) + '" text-anchor="middle">' + esc(t2) + '</text>' : '') +
 			(hit ? '<g class="tick"><circle cx="' + tk[0] + '" cy="' + tk[1] + '" r="8"/><text x="' + tk[0] + '" y="' + (tk[1] + 4) + '" text-anchor="middle">✓</text></g>' : '') + '</g>';
 	}).join('');
-	const wires = W.map(x => '<path class="wire" d="' + x[0] + '" marker-end="url(#al-ar)"/>' + (x[1] ? '<text class="w" x="' + x[2] + '" y="' + x[3] + '">' + x[1] + '</text>' : '')).join('');
+	const wires = W.map(x => '<path class="wire" d="' + x[0] + '" marker-end="url(#al-ar)"/>' + (x[1] ? '<text class="w" x="' + x[2] + '" y="' + x[3] + '"' + (x[4] ? ' text-anchor="middle"' : '') + '>' + x[1] + '</text>' : '')).join('');
 	return '<svg viewBox="0 0 410 ' + height + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Workflow of the alert ' + esc(a.name) + '">' +
 		'<defs><marker id="al-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker></defs>' + wires + nodes + '</svg>';
 }
@@ -2163,6 +2132,9 @@ function helpify() {
 		notes.forEach(n => n.remove());
 	});
 	$$('#tab-settings td.set-note:not([id])').forEach(td => { const b = td.parentNode.querySelector('button'); if (b) { Help.add(td.parentNode.firstElementChild, label(b).replace(/…$/, ''), label(td)); td.textContent = ''; } });
+	/* 1.6.4: the two rows whose note the page writes itself */
+	Help.add($('#s-power').closest('tr').firstElementChild, 'Power figures from', 'Camera\'s power log (recommended): the camera keeps its own log; Power shows 1 h to 30 days from it, and Resource Monitor keeps no copy.\nRecorded by Resource Monitor: Resource Monitor reads the power draw and keeps it in its own history.\nOff: power is not read, and the Power page is hidden.');
+	Help.add($('#s-days').closest('tr').firstElementChild, 'Keep history', '24 h is kept without an SD card. 7 and 30 days need one.\nOn the card each file is set aside in full when it is made, so it never grows. Choosing a shorter time deletes older history from the card when you save.');
 	$$('#tab-settings p.set-note.set-foot').forEach(p => {
 		const panel = p.closest('.acap-panel, section, .set-sec'), h = panel && panel.querySelector('h2, h3, .set-cap');
 		if (h) { Help.add(h, label(h), label(p)); p.remove(); }
@@ -2184,7 +2156,6 @@ function applyAccess() {
 const CLEAR = {
 	history: ['Clear history?', 'Every history point from 1 h to 30 days goes, in memory, on the camera\'s built-in flash and on the SD card; the graphs start again from now. Live readings and the camera\'s own power log stay. This can\'t be undone.', 'Clear history'],
 	log: ['Clear the app log?', 'Every line of Apps › Log goes from the camera. A line saying who cleared it is kept. This can\'t be undone.', 'Clear log'],
-	events: ['Clear the camera events list?', 'The marks under the graphs are emptied; events up to now are not listed again. The camera\'s own audit log is not touched.', 'Clear list']
 };
 function askClear(what, after) {
 	const c = CLEAR[what];
@@ -2192,7 +2163,6 @@ function askClear(what, after) {
 		try {
 			const r = await postJSON('clear', { what });
 			$('#s-msg').textContent = (r && r.message ? r.message : 'Cleared') + '.';
-			if (what === 'events' && S.cam) { S.cam.events = []; S.cam.eventsClearedAt = Date.now() / 1000; }
 			if (what === 'history') { hist = null; ovHist = null; }
 			if (what === 'log') S.log = (await getJSON('log')).lines || [];
 			if (after) after();

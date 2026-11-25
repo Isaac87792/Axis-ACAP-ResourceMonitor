@@ -1171,13 +1171,12 @@ static gboolean poll_poe(Slow* r) {
 }
 
 
-/*----------------------------------------------------- what the camera itself reports: streams, disks, its audit log */
+/*----------------------------------------------------- what the camera itself reports: streams and disks */
 
 /* All read on the slow thread through the background connection, kept under slowLock in fixed lists
  * (nothing grows), and sent to the page by the camera endpoint. */
 #define MAX_STREAMS 16
 #define MAX_CDISKS  4
-#define MAX_EVENTS  50
 typedef struct {
 	int id, srcPort, dstPort;
 	gboolean encrypted, multicast;
@@ -1189,17 +1188,11 @@ typedef struct {
 	int health;                                          /* 1 passed, 0 failed, -1 not reported */
 	double limitKb, usedKb;                              /* recordings: allowed (0 no limit, -1 unknown), used (-1 unknown) */
 } CamDisk;
-/* 1.6.1: also where it came from, which camera service wrote it and what it says */
-typedef struct { gint64 t; char kind[20]; char user[32]; char from[48]; char service[24]; char area[32]; char what[120]; } CamEvent;
 static StreamInfo streams[MAX_STREAMS];
 static int streamN = 0;
 static gboolean streamsOk = FALSE;
 static CamDisk cdisks[MAX_CDISKS];
 static int cdiskN = 0;
-static CamEvent events[MAX_EVENTS];                      /* newest last */
-static int eventN = 0;
-static gboolean eventsOk = FALSE;
-static gint64 eventsClearedAt = 0;                       /* Settings › Clear camera events list (slowLock) */
 
 static void jstr(cJSON* o, const char* key, char* out, size_t n) {
 	cJSON* v = cJSON_GetObjectItem(o, key);
@@ -1332,138 +1325,6 @@ static void poll_disks(void) {
 	g_mutex_unlock(&slowLock);
 }
 
-/* An audit log line in plain words: a kind, and the user name if the line gives one. Never the rest of the line
- * (it can hold addresses, tokens or other secrets). */
-static void audit_summary(const char* line, char* kind, size_t kn, char* user, size_t un) {
-	gchar* l = g_ascii_strdown(line, -1);
-	gboolean login = strstr(l, "login") || strstr(l, "logged in") || strstr(l, "authenticat") || strstr(l, "session opened");
-	gboolean fail = strstr(l, "fail") || strstr(l, "denied") || strstr(l, "invalid") || strstr(l, "wrong");
-	const char* k = login && fail ? "Failed login" : login ? "Login" : strstr(l, "firmware") && (strstr(l, "upgrad") || strstr(l, "updat")) ? "Firmware upgrade"
-		: strstr(l, "reboot") || strstr(l, "restart") || strstr(l, "shutdown") || strstr(l, "power cycle") ? "Restart"
-		: strstr(l, "param") || strstr(l, "setting") || strstr(l, "config") ? "Settings changed" : "Other";
-	g_strlcpy(kind, k, kn);
-	user[0] = 0;
-	/* user=NAME, user 'NAME', user "NAME", user NAME, for user NAME */
-	const char* u = strstr(l, "user");
-	if (u) {
-		const char* p = line + (u - l) + 4;
-		while (*p == '=' || *p == ':' || *p == ' ' || *p == '\'' || *p == '"' || *p == '(') p++;
-		size_t i = 0;
-		while (p[i] && i + 1 < un && !isspace((unsigned char)p[i]) && !strchr("'\",;)]", p[i])) { user[i] = p[i]; i++; }
-		user[i] = 0;
-		gchar* ul = g_ascii_strdown(user, -1);
-		if (strstr(ul, "pass") || strstr(ul, "token") || strstr(ul, "=") || i >= un - 1) user[0] = 0;   /* never a secret, never a guess */
-		g_free(ul);
-	}
-	g_free(l);
-}
-/* 1.6.1: the rest of an audit line: "... httpd[123]: Authentication: root@192.0.2.67:57821 Authentication successful (HTTP/S)."
- * gives service httpd, area Authentication, user root, from 192.0.2.67 (no port), what "Authentication successful (HTTP/S)".
- * Anything that may be a secret (pass..., token, key=) cuts the text there. */
-static void audit_detail(const char* line, CamEvent* e) {
-	e->from[0] = e->service[0] = e->area[0] = e->what[0] = 0;
-	const char* b = strstr(line, "] ");                      /* after "[ INFO    ]" */
-	const char* s = b ? b + 2 : line;
-	while (*s == ' ') s++;
-	const char* c = strstr(s, ": ");
-	if (!c) { g_strlcpy(e->what, s, sizeof(e->what)); goto clean; }
-	size_t n = (size_t)(c - s);
-	const char* br = memchr(s, '[', n);
-	g_strlcpy(e->service, s, MIN(sizeof(e->service), (br ? (size_t)(br - s) : n) + 1));
-	s = c + 2;
-	c = strstr(s, ": ");
-	if (c && (size_t)(c - s) < sizeof(e->area) && !memchr(s, '@', (size_t)(c - s))) { g_strlcpy(e->area, s, (size_t)(c - s) + 1); s = c + 2; }
-	/* user@address:port at the start */
-	const char* at = strchr(s, '@'), *sp = strchr(s, ' ');
-	if (at && (!sp || at < sp)) {
-		if (!e->user[0]) g_strlcpy(e->user, s, MIN(sizeof(e->user), (size_t)(at - s) + 1));
-		const char* a = at + 1, *end = sp ? sp : a + strlen(a);
-		const char* colon = memchr(a, ':', (size_t)(end - a));
-		if (*a == '[') { const char* rb = memchr(a, ']', (size_t)(end - a)); if (rb) { a++; colon = rb; } }
-		g_strlcpy(e->from, a, MIN(sizeof(e->from), (size_t)((colon ? colon : end) - a) + 1));
-		s = sp ? sp + 1 : end;
-	}
-	g_strlcpy(e->what, s, sizeof(e->what));
-clean:
-	g_strchomp(e->what);
-	{
-		gchar* lw = g_ascii_strdown(e->what, -1);
-		const char* bad[] = { "pass", "token", "secret", "key=" };
-		for (int i = 0; i < 4; i++) { const char* p = strstr(lw, bad[i]); if (p) { e->what[p - lw] = 0; g_strlcat(e->what, "…", sizeof(e->what)); break; } }
-		g_free(lw);
-	}
-	gchar* ul = g_ascii_strdown(e->user, -1);
-	if (strstr(ul, "pass") || strstr(ul, "token")) e->user[0] = 0;
-	g_free(ul);
-}
-/* A syslog line's time: ISO "2026-11-24T20:30:00[.123][+01:00]" or "Nov 24 20:30:00" (this year), as unix seconds */
-static gint64 audit_time(const char* line) {
-	struct tm tm;
-	memset(&tm, 0, sizeof(tm));
-	int y, mo, d, h, mi, s;
-	if (sscanf(line, "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
-		tm.tm_year = y - 1900; tm.tm_mon = mo - 1; tm.tm_mday = d; tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s;
-		const char* z = strchr(line + 19, ' ');
-		const char* o = line + 19;
-		while (*o == '.' || isdigit((unsigned char)*o)) o++;
-		if ((*o == '+' || *o == '-') && (!z || o < z)) {
-			int oh = 0, om = 0;
-			sscanf(o + 1, "%d:%d", &oh, &om);
-			gint64 t = (gint64)timegm(&tm) - (*o == '+' ? 1 : -1) * (oh * 3600 + om * 60);
-			return t;
-		}
-		if (*o == 'Z') return (gint64)timegm(&tm);
-		tm.tm_isdst = -1;
-		return (gint64)mktime(&tm);
-	}
-	static const char* M = "JanFebMarAprMayJunJulAugSepOctNovDec";
-	char mon[4] = "";
-	if (sscanf(line, "%3s %d %d:%d:%d", mon, &d, &h, &mi, &s) == 5) {
-		const char* f = strstr(M, mon);
-		if (!f || mon[0] == 0) return 0;
-		time_t nowt = time(NULL);
-		struct tm nt;
-		localtime_r(&nowt, &nt);
-		tm.tm_year = nt.tm_year; tm.tm_mon = (int)(f - M) / 3; tm.tm_mday = d; tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
-		gint64 t = (gint64)mktime(&tm);
-		if (t > (gint64)nowt + 86400) { tm.tm_year--; tm.tm_isdst = -1; t = (gint64)mktime(&tm); }   /* December's lines read in January */
-		return t;
-	}
-	return 0;
-}
-/* auditlog.cgi?tail=200, every 60 s: the last 50 events, newest last */
-static void poll_audit(void) {
-	char* x = ACAP_VAPIX_Get_Background("auditlog.cgi?tail=200");
-	if (!x) { g_mutex_lock(&slowLock); eventsOk = FALSE; g_mutex_unlock(&slowLock); return; }
-	g_mutex_lock(&slowLock);
-	eventsOk = TRUE;
-	gint64 newest = eventN ? events[eventN - 1].t : 0;
-	char* save = NULL;
-	for (char* l = strtok_r(x, "\r\n", &save); l; l = strtok_r(NULL, "\r\n", &save)) {
-		gint64 t = audit_time(l);
-		if (!t || t < newest || t <= eventsClearedAt) continue;   /* cleared in Settings: not listed again */
-		CamEvent e;
-		memset(&e, 0, sizeof(e));
-		e.t = t;
-		audit_summary(l, e.kind, sizeof(e.kind), e.user, sizeof(e.user));
-		audit_detail(l, &e);
-		gboolean seen = FALSE;                            /* the same second, kind and user is the same event */
-		for (int i = 0; i < eventN; i++) if (events[i].t == e.t && !strcmp(events[i].kind, e.kind) && !strcmp(events[i].user, e.user) && !strcmp(events[i].from, e.from) && !strcmp(events[i].what, e.what)) seen = TRUE;
-		if (seen) continue;
-		if (eventN == MAX_EVENTS) { memmove(events, events + 1, sizeof(CamEvent) * (MAX_EVENTS - 1)); eventN--; }
-		events[eventN++] = e;
-	}
-	g_mutex_unlock(&slowLock);
-	free(x);
-}
-/* Clear the camera events list: everything up to `before` (unix s) stays out, also when the audit log still has it */
-void sampler_clear_events(gint64 before) {
-	g_mutex_lock(&slowLock);
-	eventsClearedAt = before;
-	eventN = 0;
-	g_mutex_unlock(&slowLock);
-}
-
 /* 1.6.0 Time sync and Security, as the camera's own pages show them, every 60 s (fixed fields, nothing grows) */
 typedef struct {
 	gboolean ok, enabled, synced;
@@ -1570,7 +1431,7 @@ static void poll_security(void) {
 }
 static void add_onoff(cJSON* o, const char* key, int v) { if (v >= 0) cJSON_AddBoolToObject(o, key, v); }
 
-/* The camera endpoint: streams, disk health and recording space, the audit log events, time sync and security */
+/* The camera endpoint: streams, disk health and recording space, time sync and security */
 cJSON* sampler_camera_json(void) {
 	cJSON* out = cJSON_CreateObject();
 	g_mutex_lock(&slowLock);
@@ -1631,21 +1492,6 @@ cJSON* sampler_camera_json(void) {
 			cJSON_AddItemToArray(a, o);
 		}
 	}
-	if (eventsOk) {
-		if (eventsClearedAt) cJSON_AddNumberToObject(out, "eventsClearedAt", (double)eventsClearedAt);
-		cJSON* a = cJSON_AddArrayToObject(out, "events");
-		for (int i = 0; i < eventN; i++) {
-			cJSON* o = cJSON_CreateObject();
-			cJSON_AddNumberToObject(o, "t", (double)events[i].t);
-			cJSON_AddStringToObject(o, "kind", events[i].kind);
-			if (events[i].user[0]) cJSON_AddStringToObject(o, "user", events[i].user);
-			if (events[i].from[0]) cJSON_AddStringToObject(o, "from", events[i].from);
-			if (events[i].service[0]) cJSON_AddStringToObject(o, "service", events[i].service);
-			if (events[i].area[0]) cJSON_AddStringToObject(o, "area", events[i].area);
-			if (events[i].what[0]) cJSON_AddStringToObject(o, "what", events[i].what);
-			cJSON_AddItemToArray(a, o);
-		}
-	}
 	g_mutex_unlock(&slowLock);
 	return out;
 }
@@ -1686,10 +1532,9 @@ static gpointer slow_thread(gpointer user_data) {
 			/* From the start of this round, so the next round (30 s on) is due; an hour once it never answered */
 			next[s] = t + (gint64)(hourly ? 3600 : SLOW_EVERY) * G_USEC_PER_SEC;
 		}
-		/* What the camera itself reports: streams every 30 s, its audit log every 60 s, disk health and recording space every 5 min */
+		/* What the camera itself reports: streams every 30 s, disk health and recording space every 5 min */
 		static int loopN = 0;
 		if (c.collect & G_CONNS) poll_streams();
-		if (loopN % 2 == 0 && (c.collect & G_EVENTS)) poll_audit();
 		if (loopN % 10 == 0 && (c.collect & G_STORAGE)) poll_disks();
 		poll_time();                                     /* Overview: Time sync every 30 s (the page counts down between), Security every 60 s */
 		if (loopN % 2 == 0) poll_security();

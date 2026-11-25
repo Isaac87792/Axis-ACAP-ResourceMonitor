@@ -30,7 +30,7 @@ One page with a live tile per resource (each opens its own page), status chips f
 | **Power** | Live draw and PoE class, with 7 and 30 day history from the camera's own power log |
 | **AI chip** | Deep-learning processor activity, on cameras that have one |
 
-Each graph can show **Live** (the last minute, newest on the right, older seconds squeezed to the left), **1 h** or **24 h**, and up to 30 days with an SD card. Camera events are marked under the graphs.
+Each graph can show **Live** (the last minute, newest on the right, older seconds squeezed to the left), **1 h** or **24 h**, and up to 30 days with an SD card.
 
 ![CPU usage: camera and apps on one graph, with the figures underneath](docs/screenshots/cpu.png)
 
@@ -57,6 +57,10 @@ An alert is a reading past its limit for a set time, for example "CPU above 90 %
 - a **Prometheus** metric.
 
 Every alert has a Test button (sends On, then Off 3 seconds later) and its own log of what happened and exactly what was sent.
+
+- **Your own message:** each alert can send its own Context text, built from fields such as `{value}`, `{limit}`, `{unit}`, `{alert}`, `{state}`, `{count}` and `{camera}`, with simple formulas, for example `{alert} #{count} on {camera}: {value} {unit}`. The editor shows what the next alert would send. Without one, it sends the reading and the limit.
+- **Workflow view:** each alert drawn as a flowchart (reading, limit, how long, where it goes), with the steps its last alarm reached.
+- **Export and Import:** copy alerts from one camera to others with a file.
 
 ![Alerts: one line per alert with where it is sent and its status](docs/screenshots/alerts.png)
 
