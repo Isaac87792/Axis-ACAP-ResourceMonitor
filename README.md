@@ -64,6 +64,8 @@ Every alert has a Test button (sends On, then Off 3 seconds later) and its own l
 
 ![Alerts: one line per alert with where it is sent and its status](docs/screenshots/alerts.png)
 
+![Workflow view: an alert as a flowchart, with the chosen step's details on the right](docs/screenshots/workflow.png)
+
 ### Send out
 - **Prometheus:** a `/metrics` page on the camera, ready to scrape.
 - **MQTT:** one JSON message per group (`…/cpu`, `…/memory`, …) plus an availability topic, with TLS, your own CA and Home Assistant discovery (about 15 sensors appear on their own).
