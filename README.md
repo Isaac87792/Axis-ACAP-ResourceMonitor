@@ -1,3 +1,6 @@
+### Tip up front:  
+If you want to download the acap for this already packaged, look under 'Releases' in this repo for the .eap file or the zipped version.
+
 # Resource Monitor for Axis cameras
 
 **A task manager that runs inside your Axis camera.** Resource Monitor is an ACAP app that shows, live and over time, what the camera is doing: CPU, memory, storage, network, temperature, power and the AI chip, and which processes and apps are using them. It answers "why is this camera slow, hot or busy?" from the camera's own web page, with nothing else to install.
