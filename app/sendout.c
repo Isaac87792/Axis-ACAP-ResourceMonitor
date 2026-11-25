@@ -486,10 +486,10 @@ static void ha_publish(Mq* m, cJSON* groups) {
 	ha_add(m, groups, "cpu", "cpu", "CPU", "{{ value_json['cpu_percent'] }}", "%", NULL);
 	ha_add(m, groups, "cpu", "load_1m", "Load (1 min)", "{{ value_json['load']['1m'] }}", NULL, NULL);
 	ha_add(m, groups, "cpu", "iowait", "CPU waiting on disk", "{{ value_json['cpu_work_percent']['iowait'] }}", "%", NULL);
-	ha_add(m, groups, "cpu", "apps_cpu", "Non-Axis apps CPU", "{{ value_json['nonaxis_apps_cpu_percent'] }}", "%", NULL);
+	ha_add(m, groups, "cpu", "apps_cpu", "Apps CPU", "{{ value_json['nonaxis_apps_cpu_percent'] }}", "%", NULL);
 	ha_add(m, groups, "memory", "mem_used", "Memory used", "{{ value_json['memory_bytes']['used'] }}", "B", "data_size");
 	ha_add(m, groups, "memory", "mem_available", "Memory available", "{{ value_json['memory_bytes']['available'] }}", "B", "data_size");
-	ha_add(m, groups, "memory", "apps_mem", "Non-Axis apps memory", "{{ value_json['nonaxis_apps_memory_bytes'] }}", "B", "data_size");
+	ha_add(m, groups, "memory", "apps_mem", "Apps memory", "{{ value_json['nonaxis_apps_memory_bytes'] }}", "B", "data_size");
 	cJSON* g = cJSON_GetObjectItemCaseSensitive(groups, "storage");
 	cJSON* du = g ? cJSON_GetObjectItemCaseSensitive(g, "drive_used_bytes") : NULL;
 	cJSON* e;
