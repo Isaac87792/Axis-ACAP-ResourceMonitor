@@ -1017,7 +1017,7 @@ static float jnum(cJSON* o, const char* key) {
 }
 static char powerVer[16] = "";
 static gboolean power_version(void) {
-	/* The newest version the camera speaks (the Q1808-LE answers 1.7) */
+	/* The newest version the camera speaks (for example 1.7) */
 	char* v = ACAP_VAPIX_Post_Background("power-settings.cgi", "{\"method\":\"getSupportedVersions\"}");
 	cJSON* jv = v ? cJSON_Parse(v) : NULL;
 	free(v);
