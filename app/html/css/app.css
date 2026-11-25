@@ -295,13 +295,6 @@ svg.spark { display: block; width: 100%; height: 28px; }
 /* ---------- 1.2.1: what the camera itself reports ---------- */
 .cell-sub { display: block; color: var(--text-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conns td { vertical-align: middle; overflow: hidden; text-overflow: ellipsis; }
-/* audit log events: small marks under a graph's time axis, and a list on Overview */
-.ev-strip { position: relative; height: 12px; margin: 3px 0 0; border-top: 1px solid var(--stroke-soft); }
-.ev { position: absolute; top: 2px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--text-3); cursor: help; }
-.ev-login { background: #3b8eea; } .ev-failed-login { background: #f0605d; } .ev-firmware-upgrade { background: #9d7be6; }
-.ev-restart { background: #e3a008; } .ev-settings-changed { background: #2ab3a6; }
-.ev.ev-inline { position: static; display: inline-block; margin: 0 7px 0 0; vertical-align: 0; cursor: default; }
-.ev-list col.c-when { width: 22%; } .ev-list col.c-what { width: 40%; }
 /* 1.2.1: graph tooltips sit in the window beside the pointed moment; only a too-tall tooltip scrolls, nothing else */
 .tip.ftip { position: fixed; z-index: 60; overflow-y: auto; max-width: min(340px, calc(100vw - 16px)); }
 /* a connection or stream that stopped: dimmed for 60 s, then gone */
@@ -529,11 +522,6 @@ table.d-top td.bar-col .meter { flex: 1; width: auto; }
 .hist-max .ax2 { color: var(--brand); }
 
 /* 1.6.1 event dot details */
-.ev[data-k] { cursor: pointer; }
-.ev-tip-h { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; } .ev-tip-t { color: var(--text-3); font-size: 12px; }
-table.ev-tip { border-collapse: collapse; width: 100%; margin-bottom: 6px; }
-table.ev-tip td { padding: 2px 8px 2px 0; vertical-align: top; font-size: 12.5px; overflow-wrap: anywhere; }
-table.ev-tip td:first-child { color: var(--text-3); white-space: nowrap; }
 
 /* 1.6.1 Settings: the Save and Cancel bar slides up from the bottom when something changed and stays in view while scrolling */
 #tab-settings > .save-bar { position: sticky; bottom: 0; z-index: 20; margin: 12px 0 0; padding: 10px 16px; background: #262626; border: 1px solid var(--stroke); border-radius: 8px 8px 0 0;
@@ -594,7 +582,7 @@ table.ev-tip td:first-child { color: var(--text-3); white-space: nowrap; }
 .wf-canvas svg { display: block; width: 100%; height: auto; max-height: 72vh; }
 .wf-canvas text { font: 13px var(--font); fill: #fff; }
 .wf-canvas text.sub { font-size: 11.5px; opacity: .92; }
-.wf-canvas text.w { fill: var(--text-3); font-size: 11.5px; }
+.wf-canvas text.w { fill: var(--text-2); font-size: 12px; }   /* 1.6.5: brighter, easier to read */
 .wf-canvas .wire { fill: none; stroke: #777; stroke-width: 1.5; }
 .wf-canvas .node { cursor: pointer; outline: none; }
 .wf-canvas .node:hover rect, .wf-canvas .node:hover polygon, .wf-canvas .node:focus-visible rect, .wf-canvas .node:focus-visible polygon { filter: brightness(1.15); }

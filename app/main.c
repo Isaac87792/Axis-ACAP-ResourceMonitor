@@ -31,7 +31,6 @@
 #define APP_PACKAGE "resource_monitor"
 #define LOG_MAX     100
 #define LOG_FILE    "localdata/log.json"
-#define STATE_FILE  "localdata/state.json"   /* what was cleared, kept across restarts */
 #ifndef MEM_LIMIT_KB
 #define MEM_LIMIT_KB 32768  /* about ten times normal use: above it, the app restarts itself */
 #endif
@@ -274,7 +273,7 @@ static void HTTP_power(ACAP_HTTP_Response response, const ACAP_HTTP_Request requ
 	respond(response, sampler_power_history_json((int)param_long(request, "seconds", 3600)));
 }
 
-/* What the camera itself reports (streams, disk health, recording space, audit log events) */
+/* What the camera itself reports (streams, disk health, recording space, ) */
 static void HTTP_camera(ACAP_HTTP_Response response, const ACAP_HTTP_Request request) {
 	(void)request;
 	respond(response, sampler_camera_json());
@@ -336,7 +335,7 @@ static void HTTP_configset(ACAP_HTTP_Response response, const ACAP_HTTP_Request 
 	respond(response, out);
 }
 
-/* Clear (admin): POST {"what":"history"|"log"|"events"}. The page asks first; each is logged with who and when. */
+/* Clear (admin): POST {"what":"history"|"log"}. The page asks first; each is logged with who and when. */
 static void HTTP_clear(ACAP_HTTP_Response response, const ACAP_HTTP_Request request) {
 	cJSON* in = post_json(request);
 	const char* what = in ? cJSON_GetStringValue(cJSON_GetObjectItem(in, "what")) : NULL;
@@ -351,17 +350,9 @@ static void HTTP_clear(ACAP_HTTP_Response response, const ACAP_HTTP_Request requ
 		logLines = cJSON_CreateArray();
 		g_mutex_unlock(&logLock);
 		line = "Log cleared";
-	} else if (what && !strcmp(what, "events")) {
-		gint64 t = (gint64)time(NULL);
-		sampler_clear_events(t);
-		cJSON* st = cJSON_CreateObject();                    /* kept, so a restart does not list them again */
-		cJSON_AddNumberToObject(st, "eventsClearedAt", (double)t);
-		ACAP_FILE_Write(STATE_FILE, st);
-		cJSON_Delete(st);
-		line = "Camera events list cleared";
 	}
 	cJSON_Delete(in);
-	if (!line) { ACAP_HTTP_Respond_Error(response, 400, "Expected {\"what\":\"history\"|\"log\"|\"events\"}"); return; }
+	if (!line) { ACAP_HTTP_Respond_Error(response, 400, "Expected {\"what\":\"history\"|\"log\"}"); return; }
 	log_add("Resource Monitor", line, who);
 	LOG("%s by %s\n", line, who && *who ? who : "?");
 	cJSON* out = cJSON_CreateObject();
@@ -553,12 +544,6 @@ int main(void) {
 
 	sampler_init();
 	config_load();                                       /* the saved settings, before the first reading */
-	{
-		cJSON* st = ACAP_FILE_Read(STATE_FILE);              /* camera events cleared before a restart stay cleared */
-		cJSON* t = st ? cJSON_GetObjectItem(st, "eventsClearedAt") : NULL;
-		if (cJSON_IsNumber(t)) sampler_clear_events((gint64)t->valuedouble);
-		cJSON_Delete(st);
-	}
 	poll_apps(NULL);                                     /* first, so the first reading already knows which apps are Axis's */
 	sampler_tick();
 	ACAP_HTTP_Node("live", HTTP_live);
