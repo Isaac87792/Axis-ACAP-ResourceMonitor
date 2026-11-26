@@ -1,5 +1,5 @@
 ### Tip up front:  
-If you want to download the acap for this already packaged, look under 'Releases' for "Resource_Monitor_x.x.x_aarch64.eap". Download it, upload it to your device and start it.
+If you want to download this product already packaged, look under 'Releases' for the latest version. Download it, unblock it if necessary (Right Click Properties, Unblock), upload it to your device, and start it.
 
 # Resource Monitor for Axis cameras
 
