@@ -25,7 +25,7 @@ const num = v => (v == null || isNaN(v)) ? NaN : +v;
  * whenever js/theme.js changes the page's theme; then every graph is drawn again in the new colours (retheme()). */
 let BRAND, BRAND_FILL, BRAND_TEXT, EDGE, TOTAL, RX, TX, TEMP, BUSY, CAM_LINE, AXIS_TEXT, CURSOR, GRID, GRID2, ZERO, HEAT_BAND, TEMP_FRAME;
 const C = {};
-let PAL = [], DRV = [], PAIRS = [];
+let PAL = [], DRV = [], PAIRS = [], LNK = [], MATCH = {};
 function readColours() {
 	const cs = getComputedStyle(document.documentElement), t = n => cs.getPropertyValue(n).trim();
 	BRAND = t('--kit-c-apps-line');          /* the apps as a line (yellow; darker gold on light) */
@@ -40,6 +40,8 @@ function readColours() {
 	PAL = [BRAND, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];       /* one colour per sensor */
 	DRV = [TOTAL, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];       /* one colour per drive */
 	PAIRS = [[C.blue, C.amber], [C.teal, C.violet], [TOTAL, C.warn], [C.grey, C.danger]];   /* read and write, per device */
+	LNK = [C.amber, C.blue, C.teal, C.violet, TOTAL, C.danger, C.grey, C.warn];      /* 1.9.0: one colour per linked device */
+	MATCH = { fill: t('--rm-g-match-fill'), edge: t('--rm-g-match-edge'), text: t('--rm-g-match-text') };   /* 1.9.0: Port Testing matches */
 }
 readColours();
 /* A line's area fades from this colour: the apps' area is the Axis yellow under their own line colour */
@@ -72,6 +74,15 @@ function fmtRate(kbs) {                       /* kB/s, read and write */
 function fmtCount(v) { v = num(v); return isNaN(v) ? '–' : v >= 10000 ? Math.round(v / 1000) + 'k' : v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10); }
 function fmtPct(v, d) { v = num(v); return isNaN(v) ? '–' : v.toFixed(d == null ? (v < 10 && v > 0 ? 1 : 0) : d) + ' %'; }
 function fmtW(v) { v = num(v); return isNaN(v) ? '–' : v.toFixed(v >= 100 ? 0 : 1) + ' W'; }
+function fmtMs(v) { v = num(v); return isNaN(v) ? '–' : (v < 10 ? v.toFixed(1) : String(Math.round(v))) + ' ms'; }
+/* 1.9.0 Network tile: out and in, both in the larger one's unit, so they line up and fit the tile */
+function fmtPair(tx, rx) {
+	const a = num(tx), b = num(rx);
+	if (isNaN(a) && isNaN(b)) return '–';
+	const mb = Math.max(isNaN(a) ? 0 : a, isNaN(b) ? 0 : b) >= 1;
+	const f = v => isNaN(v) ? '–' : mb ? (v >= 10 ? String(Math.round(v)) : v.toFixed(1)) : String(Math.round(v * 1000));
+	return '<span class="ar">↑</span>' + f(a) + ' <span class="ar">↓</span>' + f(b) + (mb ? ' Mbit/s' : ' kbit/s');
+}
 /* 1.6.1: temperatures are read and kept in °C; Settings › Show temperatures in picks what the page shows */
 function tempF() { return !!(S.now && S.now.settings && S.now.settings.tempUnit === 'F'); }
 function toT(c) { return c == null || isNaN(c) ? c : tempF() ? c * 9 / 5 + 32 : c; }
@@ -121,6 +132,8 @@ const VIEWS = {
 	net: [['traffic', 'Traffic'], ['packets', 'Packets'], ['errors', 'Errors and drops']],
 	flash: [['space', 'Space'], ['activity', 'Activity']]
 };
+/* 1.9.0: Network has Round trip and Link loss while Port Testing gives links */
+const viewsOf = k => k === 'net' && hasLinks() ? VIEWS.net.concat([['rtt', 'Round trip'], ['loss', 'Link loss']]) : VIEWS[k];
 const RES = {
 	cpu:  { name: 'CPU', top: 'Using the most CPU' },
 	mem:  { name: 'Memory', top: 'Using the most memory' },
@@ -130,6 +143,27 @@ const RES = {
 	power:{ name: 'Power', top: 'Using the most CPU' },
 	dlpu: { name: 'AI chip', top: 'Using the most CPU' }
 };
+/* 1.9.0 Links to other devices, from the Port Testing app: shown only while it runs and Settings shows them */
+const GAME = { pong: 'Pong', battleship: 'Battleship', check: 'Port check', portcheck: 'Port check' };
+const gameName = g => GAME[String(g || '').toLowerCase()] || (g ? String(g).charAt(0).toUpperCase() + String(g).slice(1) : 'Match');
+const linksOn = () => { const l = S.now && S.now.links; return l && l.app === 'running' && shown(GB.links) ? l : null; };
+/* Each device with its place (i) in the readings' lrtt and lloss lists */
+const linkDevs = () => ((linksOn() || {}).devs || []).map((d, i) => d ? Object.assign({ i }, d) : null).filter(Boolean);
+const hasLinks = () => linkDevs().length > 0;
+const isLinkView = () => view.net === 'rtt' || view.net === 'loss';
+/* The one place match periods come from, for every Network graph (live, 1 h, 24 h) and their tooltips: each match
+   that overlaps t0..t1, a playing one up to now */
+function matchBands(t0, t1) {
+	const l = linksOn();
+	if (!l) return [];
+	const now = clock();
+	return (l.matches || []).map(m => ({ t0: m.start, t1: m.end == null ? now : m.end, playing: m.end == null, label: gameName(m.game) + ' · ' + (m.camera || ''), start: m.start, end: m.end }))
+		.filter(b => b.t1 >= t0 && b.t0 <= t1);
+}
+function matchTipHtml(bands) {
+	return (bands || []).map(b => '<div class="ht-m"><i class="k-match"></i><span><b>' + esc(b.label) + '</b><br><span class="hint">' +
+		(b.playing ? 'Started ' + esc(whenTxt(b.start)) + ', playing now' : esc(whenTxt(b.start)) + ' to ' + esc(hhmm(b.end, 1)) + ' (' + esc(fmtAge(b.end - b.start)) + ')') + '</span></span></div>').join('');
+}
 const at = (p, k, i) => { const a = p && p[k]; return a && a[i] != null ? a[i] : null; };
 const at2 = (p, k, i, j) => { const a = p && p[k] && p[k][i]; return a && a[j] != null ? a[j] : null; };
 function peak(pts, gets) { let m = 0; pts.forEach(p => gets.forEach(g => { const v = g(p); if (v != null && v > m) m = v; })); return m; }
@@ -179,6 +213,12 @@ function spec(k, pts) {
 			return { axis: pct, fmt: x => fmtPct(x, 0), series: [L('In use', TOTAL, p => p.mem)] };
 		case 'net': {
 			const i = netIf, nv = (p, j) => { const x = at2(p, 'nets', i, j); return x != null ? x : i === 0 && j < 2 ? (j ? p.tx : p.rx) : null; };
+			if (v === 'rtt' || v === 'loss') {             /* 1.9.0: one line per device, from Port Testing */
+				const key = v === 'rtt' ? 'lrtt' : 'lloss', s = linkDevs().map((d, j) => L(d.name, LNK[j % LNK.length], p => at(p, key, d.i)));
+				const top = niceMax(Math.max(5, peak(pts, s.map(x => x.get)) * 1.2));
+				return v === 'rtt' ? { axis: { min: 0, max: top, unit: ' ms' }, fmt: fmtMs, series: s, note: 'One line per device' }
+					: { axis: { min: 0, max: Math.min(100, top), unit: '%' }, fmt: x => fmtPct(x, 1), series: s, note: 'One line per device; updates lost, in percent' };
+			}
 			if (v === 'packets') return { axis: { min: 1, max: 100000, log: true, unit: '', format: x => fmtCount(x) + '/s' }, fmt: x => fmtCount(x) + ' /s',
 				note: 'Each step up is 10 times more packets', series: [L('Sent', TX, p => nv(p, 3)), L('Received', RX, p => nv(p, 2))] };
 			if (v === 'errors') {
@@ -257,8 +297,11 @@ function subText() {
 			return 'Share of all ' + (n.cores || '?') + ' cores in use' + (n.mhz ? ' · ' + Math.round(n.mhz) + ' MHz now' : '');
 		case 'mem': return fmtKb(n.memTotalKb) + ' in all. Cache the camera can free at once counts as available.';
 		case 'flash': { const d = drives(), f = fullest(); return d.length + (d.length === 1 ? ' drive' : ' drives') + (f ? ' · fullest: ' + f.name + ' ' + fmtPct(usedPct(f), 0) : ''); }
-		case 'net': { const i = (n.nets || [])[netIf]; if (!i) return (n.netIf || 'Ethernet') + (n.linkMbps ? ', link ' + fmtLink(n.linkMbps) : '');
-			return i.name + (i.linkMbps ? ', link ' + fmtLink(i.linkMbps) : '') + (i.state ? ', ' + i.state : ''); }
+		case 'net': {
+			const ms = hasLinks() ? ' · Port Testing matches shaded' : '';    /* 1.9.0 */
+			if (isLinkView() && hasLinks()) return (view.net === 'rtt' ? 'Round trip to each device, from Port Testing' : 'Updates lost on each link, from Port Testing') + ' · matches shaded';
+			const i = (n.nets || [])[netIf]; if (!i) return (n.netIf || 'Ethernet') + (n.linkMbps ? ', link ' + fmtLink(n.linkMbps) : '') + ms;
+			return i.name + (i.linkMbps ? ', link ' + fmtLink(i.linkMbps) : '') + (i.state ? ', ' + i.state : '') + ms; }
 		case 'temp': { const s = (n.sensors || []).length, h = hottest(); return s > 1 ? s + ' sensors' + (h ? ' · hottest: ' + h.name + ' ' + fmtC(h.v) : '') : s === 1 ? 'One sensor: ' + n.sensors[0].name : 'The highest of the camera\'s temperature sensors'; }
 		case 'power': { const p = n.power || {}; return p.kind === 'ports' ? 'PoE ports · giving out ' + fmtW((S.last || {}).power) + (p.budgetW ? ' of ' + fmtW(p.budgetW) + ' budget' : '')
 			: (p.class ? 'PoE class ' + p.class + ' · ' : '') + 'drawing ' + fmtW((S.last || {}).power) + (p.budgetW ? ' of ' + fmtW(p.budgetW) + ' budget' : ''); }
@@ -340,17 +383,21 @@ function liveVals(sp, s) {
 function syncLive(k) {
 	if (!G || !G[k]) return false;
 	const sp = spec(k, S.window || []), ax = sp.axis;
-	const sig = JSON.stringify([view[k] || '', k === 'net' ? netIf : 0, sp.series.map(x => x.name + x.color), ax.min, ax.max, ax.unit || '', !!ax.log, !!sp.stacked, sp.axis2 ? sp.axis2.unit : '']);
+	const sig = JSON.stringify([view[k] || '', k === 'net' ? netIf : 0, sp.series.map(x => x.name + x.color), ax.min, ax.max, ax.unit || '', !!ax.log, !!sp.stacked, sp.axis2 ? sp.axis2.unit : '', k === 'net' && hasLinks()]);
 	if (LC[k] && LC[k].sig === sig) { LC[k].sp = sp; return false; }
 	LC[k] = { sig, sp };
 	const g = G[k];
 	g.clear();
+	/* 1.9.0: Network graphs shade Port Testing's matches (livePeriods() keeps them current) */
+	if (k === 'net') g.setOptions({ periodLegend: hasLinks() ? 'Port Testing match' : '', periodFill: MATCH.fill, periodEdge: MATCH.edge, periodText: MATCH.text });
 	g.setOptions({ series: sp.series.map(x => ({ name: x.name, color: x.color, fillColor: fillOf(x.color), band: !!x.band, legendColor: x.legendColor || (x.color === BRAND ? BRAND_TEXT : undefined), axis: x.right ? 'right' : 'left', fmt: x.fmt })), legend: !belowLegend(k), axes: { left: Object.assign({ color: AXIS_TEXT, labels: true }, plotAxis(ax)),
 		right: sp.axis2 ? { min: 0, max: sp.axis2.floorMax, auto: true, floorMax: sp.axis2.floorMax, unit: sp.axis2.unit, color: BRAND_TEXT, labels: true } : null },
 		valueFormat: (v, ser) => (ser && ser.fmt ? ser.fmt : sp.fmt)(v), footerLeft: sp.note || (k === 'cpu' ? (S.now.cores || '?') + ' cores' : k === 'mem' ? () => fmtKb(S.now.memTotalKb) + ' in all' : '') });
 	(S.window || []).forEach(s => g.push(liveVals(sp, s), s.t));
 	return true;
 }
+/* 1.9.0: the matches in the Live Network graph's time (it spans the last minute or so) */
+function livePeriods() { if (G && G.net) G.net.setPeriods(matchBands(clock() - 300, clock())); }
 /* The core tiles follow the CPU view too; true when they were set up again (and drawn) */
 let coresSig = '';
 function syncCores() {
@@ -422,7 +469,8 @@ function liveHover(g, el, k, valsFn, onPoint, kindFn) {
 		const p = tops.length ? tops[tops.length - 1] : nearest(S.liveTops || [], t);
 		if (onPoint && p !== lastP) { lastP = p; onPoint(p); }
 		tip.innerHTML = topTipHtml({ t, seconds: true, ago: tdNow() - t, pinned: pinT !== null, vals: s ? valsFn(s) : [], title: kind.title,
-			top: p ? p[kind.list] : [], other: p ? p[kind.other] : 0, usualOf: usual(S.liveTops || [], kind.list), isMem: kind.isMem, isNet: kind.isNet, isIo: kind.isIo, none: kind.none, fmtv: kind.fmtv });
+			top: p ? p[kind.list] : [], other: p ? p[kind.other] : 0, usualOf: usual(S.liveTops || [], kind.list), isMem: kind.isMem, isNet: kind.isNet, isIo: kind.isIo, none: kind.none, fmtv: kind.fmtv,
+			match: k === 'net' ? matchBands(t, t) : null });
 		tip.hidden = false;
 		placeTip(tip, g.canvas.getBoundingClientRect().left + x, lastY);
 		requestAnimationFrame(render);
@@ -475,6 +523,8 @@ async function pollLive() {
 		if (d.seq < S.seq) { S.seq = 0; clearGraphs(); S.window = []; S.liveTops = []; }   /* the app restarted */
 		S.now = d.now || {};
 		if (netIf >= (S.now.nets || []).length) netIf = 0;      /* the list can be shorter after a restart */
+		const pt = S.now.links ? S.now.links.app : '';            /* 1.9.0: Settings greys the Links row while Port Testing is missing */
+		if (pt !== pollLive.pt) { pollLive.pt = pt; if (setData && tab === 'settings') { readForm(); drawSettings(); } }
 		if (!G) makeGraphs(S.now.cores || 1);
 		const smp = d.samples || [];
 		if (smp.length) {
@@ -484,6 +534,7 @@ async function pollLive() {
 			KEYS.forEach(k => { if (!syncLive(k)) smp.forEach(s => G[k].push(liveVals(LC[k].sp, s), s.t)); });
 			if (!syncCores()) smp.forEach(s => G.cores.forEach((g, i) => g.push(liveVals(coreSpec(i), s), s.t)));
 			feedSparks(smp);
+			livePeriods();
 			S.last = smp[smp.length - 1];
 			/* Each core tile says its current share above its box: "Core 1 · 54 % · apps 2 %" */
 			drawCoreLabels();
@@ -522,7 +573,8 @@ function drawBar() {
 	const all = drives(), f = fullest();
 	set('flash', f ? usedPct(f) : s.flash, 100 * num(me.diskKb) / num(n.flashTotalKb), f ? fmtPct(usedPct(f), 0) + ' · ' + esc(f.name) : fmtPct(s.flash, 0),
 		all.map(d => d.name + ': ' + fmtKb(d.totalKb - d.freeKb) + ' of ' + fmtKb(d.totalKb) + ' used.').join(' ') + ' Resource Monitor ' + fmtKb(me.diskKb) + ' (its history is ' + histWhere() + ').');
-	set('net', 100 * (num(s.tx) + num(s.rx)) / (n.linkMbps || 1000), 0, fmtMbps(num(s.tx) + num(s.rx)), 'Sent ' + fmtMbps(s.tx) + ', received ' + fmtMbps(s.rx) + (n.linkMbps ? ' on a ' + n.linkMbps + ' Mbit/s link' : '') + (n.netIf ? ' (' + n.netIf + ').' : '.') + ' The camera does not count network use per app.');
+	/* 1.9.0: out (sent, ↑) and in (received, ↓) each, in the larger one's unit */
+	set('net', 100 * (num(s.tx) + num(s.rx)) / (n.linkMbps || 1000), 0, fmtPair(s.tx, s.rx), 'Out (sent) ' + fmtMbps(s.tx) + ', in (received) ' + fmtMbps(s.rx) + (n.linkMbps ? ' on a ' + n.linkMbps + ' Mbit/s link' : '') + (n.netIf ? ' (' + n.netIf + ').' : '.') + ' The camera does not count network use per app.');
 	const h = hottest();
 	if (h) set('temp', 100 * h.v / 90, 0, fmtC(h.v), 'The hottest of the camera\'s temperature sensors' + (h.name ? ': ' + h.name : '') + '.');
 	else set('temp', 0, 0, 'Not reported', 'This camera does not report a temperature to apps.', true);
@@ -574,6 +626,20 @@ function drawStats() {
 			break;
 		}
 		case 'net': {
+			if (isLinkView() && hasLinks()) {               /* 1.9.0: each device now, from Port Testing */
+				const ds = linkDevs().filter(d => d.current), l = linksOn() || {};
+				if (view.net === 'rtt') {
+					ds.forEach(d => o.push(stat(d.name + ', now', unitHtml(fmtMs(d.rtt))), stat(d.name + ', 95 %', unitHtml(fmtMs(d.p95)))));
+					const pl = ds.find(d => d.playing);
+					o.push(stat('Playing now', pl ? esc(gameName(pl.game)) + ' <small>' + esc(pl.name) + '</small>' : 'No'));
+				} else {
+					ds.forEach(d => o.push(stat(d.name, unitHtml(fmtPct(d.loss)), num(d.loss) > 0 ? 'warn' : '')));
+					const ref = ds.reduce((a, d) => a + (isNaN(num(d.refused)) ? 0 : num(d.refused)), 0);
+					o.push(stat('Refused, since start', fmtCount(ref), ref > 0 ? 'warn' : ''), stat('Matches, last 24 h', String((l.matches || []).filter(m => m.start >= clock() - 86400).length)));
+				}
+				if (!ds.length) o.push(stat('Port Testing', 'Not answering'));
+				break;
+			}
 			const i = (n.nets || [])[netIf], x = (s.nets || [])[netIf] || [];
 			const tx = x[1] != null ? x[1] : s.tx, rx = x[0] != null ? x[0] : s.rx;
 			o.push(stat('Sent', unitHtml(fmtMbps(tx))), stat('Received', unitHtml(fmtMbps(rx))));
@@ -667,8 +733,12 @@ function showNoData() {
 /* The view buttons for this page, and the interface chips on Ethernet (only with more than one) */
 let segSig = '';
 function drawSegs() {
-	const nets = S.now.nets || [], v = VIEWS[sel];
-	const sig = sel + '|' + view[sel] + '|' + cpuParent + '|' + netIf + '|' + nets.map(x => x.name).join(',');
+	if (sel === 'net' && isLinkView() && !hasLinks()) {   /* 1.9.0: Port Testing stopped: back to Traffic */
+		view.net = 'traffic';
+		if (range !== 'live' && hist) setTimeout(() => drawHist(), 0);
+	}
+	const nets = S.now.nets || [], v = viewsOf(sel);
+	const sig = sel + '|' + view[sel] + '|' + cpuParent + '|' + netIf + '|' + nets.map(x => x.name).join(',') + '|' + (v || []).length;
 	if (sig === segSig) return;
 	segSig = sig;
 	const vs = $('#view-seg'), is = $('#if-seg'), ps = $('#parent-seg');
@@ -679,7 +749,7 @@ function drawSegs() {
 	vs.hidden = !v;
 	vs.innerHTML = v ? v.map(x => '<button type="button" data-v="' + x[0] + '"' + (view[sel] === x[0] ? ' class="on"' : '') + '>' + esc(x[1]) + '</button>').join('') : '';
 	$$('button', vs).forEach(b => { b.onclick = () => { view[sel] = b.dataset.v; pinned = null; showPerf(); }; });
-	is.hidden = !(sel === 'net' && nets.length > 1);
+	is.hidden = !(sel === 'net' && nets.length > 1 && !isLinkView());
 	is.innerHTML = is.hidden ? '' : nets.map((x, i) => '<button type="button" data-i="' + i + '"' + (i === netIf ? ' class="on"' : '') + ' title="' + esc(x.present ? (x.state || '') : 'Gone') + '">' + esc(x.name) + '</button>').join('');
 	$$('button', is).forEach(b => { b.onclick = () => { netIf = +b.dataset.i; pinned = null; showPerf(); }; });
 }
@@ -766,6 +836,7 @@ function topTipHtml(o) {
 	}).join('');
 	return '<div class="ht-h"><b>' + hhmm(o.t, o.seconds) + '</b><span class="hint">' + fmtAge(o.ago) + ' ago' + (o.pinned ? ' · pinned' : '') + '</span></div>' +
 		'<div class="ht-v">' + o.vals.map(v => '<span><span class="sw" style="background:' + v[1] + '"></span>' + esc(v[0]) + ' <b>' + esc(v[2]) + '</b></span>').join('') + '</div>' +
+		matchTipHtml(o.match) +                                     /* 1.9.0: the Port Testing match then */
 		(o.none ? '' : '<div class="ht-t">' + esc(o.title) + '</div>') +
 		(o.none ? '' : top.length ? '<table class="ht-tab">' + rows + (o.isIo ? '' : '<tr class="ht-other"><td class="n">' + (o.isNet ? 'Everything else (UDP, closed connections)' : 'Everything else') + '</td><td class="v">' + esc(o.fmtv(o.other || 0)) + '</td><td></td></tr>') + '</table>'
 			: '<p class="hint">' + (o.isIo ? 'Nothing was waiting on the disk then.' : 'No list for this moment yet.') + '</p>') +
@@ -779,6 +850,7 @@ const IO_KIND = { isIo: true, list: 'ioTop', other: null, fmtv: v => 'blocked ' 
 function topKind(k, hasNet) {
 	if (k === 'io' || k === 'flash') return IO_KIND;            /* storage graphs: what waited on the disk */
 	if (k === 'temp' || k === 'power' || k === 'dlpu') return NO_KIND;   /* no process list here: it would be another resource's */
+	if (k === 'net' && isLinkView()) return NO_KIND;                     /* 1.9.0: round trip and loss: no connection list */
 	const isMem = k === 'mem', isNet = k === 'net' && hasNet;
 	return {
 		isMem, isNet,
@@ -806,6 +878,11 @@ function histSvg(sp, P, X, W, H) {
 			const x0 = X(i ? P[i - 1].t : p.t - dt), x1 = X(p.t);
 			if (x1 > x0) g += '<rect x="' + x0.toFixed(1) + '" y="0" width="' + (x1 - x0 + 0.4).toFixed(1) + '" height="' + H + '" fill="' + x.color + '"/>';
 		});
+	});
+	/* 1.9.0: Port Testing's matches (sp.periods, from matchBands): a light band each, edged; the labels are in histBandLabels */
+	(sp.periods || []).forEach(b => {
+		const x0 = X(b.t0), x1 = Math.max(X(b.t1), x0 + 1);
+		g += '<rect x="' + x0.toFixed(1) + '" y="0" width="' + (x1 - x0).toFixed(1) + '" height="' + H + '" fill="' + MATCH.fill + '" stroke="' + MATCH.edge + '" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>';
 	});
 	if (pa.zero != null) g += '<line class="zero" x1="0" x2="' + W + '" y1="' + Y(pa.zero).toFixed(1) + '" y2="' + Y(pa.zero).toFixed(1) + '" stroke="' + ZERO + '" vector-effect="non-scaling-stroke"/>';
 	/* Stacked areas: each kind of work on top of the ones before it; a gap in the readings breaks the area */
@@ -843,6 +920,16 @@ function histSvg(sp, P, X, W, H) {
 	g += '<line class="hl" y1="0" y2="' + H + '" stroke="' + CURSOR + '" vector-effect="non-scaling-stroke" visibility="hidden"/>';
 	return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + g + '</svg>';
 }
+/* 1.9.0: each match band's "<Game> · <device>" over a history graph, in page text (the SVG is stretched to fit) */
+/* Each label may run past its band, up to the next band's start or the graph's right edge */
+function histBandLabels(sp, X, W) {
+	const xs = (sp.periods || []).map(b => ({ b, x0: X(b.t0) })).sort((a, c) => a.x0 - c.x0);
+	return xs.map((e, k) => {
+		const room = (k + 1 < xs.length ? xs[k + 1].x0 : W) - e.x0;
+		return room < 12 ? '' : '<span class="m-lbl" style="left:' + (100 * e.x0 / W).toFixed(2) + '%;max-width:' + (100 * room / W).toFixed(2) + '%">' + esc(e.b.label) + '</span>';
+	}).join('');
+}
+const matchKey = sp => sp.periods ? '<span class="key"><i class="k-match"></i>Port Testing match</span>' : '';
 /* Hover on a history graph: the graph's own values and the top 10 then. pin: { get(), set(i) } (the main graph's pin is kept
    across refreshes; each core tile has its own). */
 /* Returns reshow(i, y): shows moment i again, its tooltip at height y (a pinned moment, after the graph was drawn again) */
@@ -853,7 +940,9 @@ function histHover(box, svg, sp, P, X, W, t0, secs, tEnd, kind, usualOf, pin, on
 		const p = P[i], x = X(p.t), hl = $('.hl', svg), r = svg.getBoundingClientRect();
 		hl.setAttribute('x1', x); hl.setAttribute('x2', x); hl.setAttribute('visibility', 'visible');
 		hl.setAttribute('stroke', pin.get() !== null ? EDGE : CURSOR);
-		tip.innerHTML = topTipHtml({ t: p.t, ago: tEnd - p.t, pinned: pin.get() !== null, vals: valsOf(sp, p), title: kind.title, top: p[kind.list] || [], other: p[kind.other], usualOf, isMem: kind.isMem, isNet: kind.isNet, isIo: kind.isIo, none: kind.none, fmtv: kind.fmtv });
+		const pt0 = i ? P[i - 1].t : p.t - (P.length > 1 ? P[1].t - P[0].t : 10);   /* 1.9.0: matches in this point */
+		tip.innerHTML = topTipHtml({ t: p.t, ago: tEnd - p.t, pinned: pin.get() !== null, vals: valsOf(sp, p), title: kind.title, top: p[kind.list] || [], other: p[kind.other], usualOf, isMem: kind.isMem, isNet: kind.isNet, isIo: kind.isIo, none: kind.none, fmtv: kind.fmtv,
+			match: sp.periods ? sp.periods.filter(b => b.t1 > pt0 && b.t0 <= p.t) : null });
 		if (onPoint) onPoint(p);
 		tip.hidden = false;
 		placeTip(tip, r.left + x / W * r.width, lastY);
@@ -901,11 +990,12 @@ function drawHist(keepPins) {
 		return;
 	}
 	const sp = spec(sel, P), ax = sp.axis, lg = !!ax.log;
+	if (sel === 'net' && hasLinks()) sp.periods = matchBands(t0, tEnd);   /* 1.9.0: Port Testing's matches shaded */
 	const axTxt = v => ax.format ? ax.format(v) : (Math.round(v * 100) / 100) + (ax.unit || '');
 	const kindNote = sp.count ? 'Errors and drops are counted in each point. ' : sel === 'flash' && view.flash === 'space' ? 'Space is the latest reading in each point. ' : sp.stacked ? 'Stacked: the top edge is the whole CPU in use. ' : '';
 	const below = belowLegend(sel);
-	box.innerHTML = '<div class="chart-label"><span class="hist-keys">' + (below ? '' : legendHtml(sp.series)) + '</span><span class="hist-max">' + esc(axTxt(ax.max)) + (lg ? ' (each line down is 10 times less)' : '') + (sp.axis2 ? ' · <span class="ax2">apps scale ' + esc((Math.round(sp.axis2.max * 10) / 10) + (sp.axis2.unit === '%' ? ' %' : sp.axis2.unit)) + '</span>' : '') + '</span></div>' +
-		histSvg(sp, P, X, W, 280) + (below ? '<div class="' + legendCls(sel) + '">' + legendHtml(sp.series) + '</div>' : '') + foot(kindNote);
+	box.innerHTML = '<div class="chart-label"><span class="hist-keys">' + (below ? '' : legendHtml(sp.series) + matchKey(sp)) + '</span><span class="hist-max">' + esc(axTxt(ax.max)) + (lg ? ' (each line down is 10 times less)' : '') + (sp.axis2 ? ' · <span class="ax2">apps scale ' + esc((Math.round(sp.axis2.max * 10) / 10) + (sp.axis2.unit === '%' ? ' %' : sp.axis2.unit)) + '</span>' : '') + '</span></div>' +
+		(sp.periods ? '<div class="hist-wrap">' + histSvg(sp, P, X, W, 280) + histBandLabels(sp, X, W) + '</div>' : histSvg(sp, P, X, W, 280)) + (below ?'<div class="' + legendCls(sel) + '">' + legendHtml(sp.series) + '</div>' : '') + foot(kindNote);
 	const y = pinTipY('hist');
 	if (pinned !== null && !P[pinned]) pinned = null;
 	const reshow = histHover(box, $('svg', box), sp, P, X, W, t0, secs, tEnd, kind, usualOf, { get: () => pinned, set: v => { pinned = v; } }, null, 'hist');
@@ -1472,7 +1562,7 @@ function exportLog() {
 
 /*---------------------------------------------------- Settings (1.3.0): rows, saved with Save (nothing to confirm) */
 /* Groups of readings, as the camera side numbers them; a group neither shown nor sent is not read at all */
-const GB = { cpu: 1, mem: 2, flash: 4, net: 8, temp: 16, power: 32, dlpu: 64, procs: 128, conns: 256, events: 512 };
+const GB = { cpu: 1, mem: 2, flash: 4, net: 8, temp: 16, power: 32, dlpu: 64, procs: 128, conns: 256, events: 512, links: 1024 };
 const shown = b => !S.now || !S.now.settings || (S.now.settings.collect & b) !== 0;   /* b: a GB bit */
 const GROUPS = [
 	['cpu', 'CPU, each core, kind of work, clock', '/proc/stat, cpufreq', 'always'],
@@ -1484,6 +1574,7 @@ const GROUPS = [
 	['dlpu', 'AI chip', '/proc/interrupts'],
 	['procs', 'Processes (top 10 at each moment)', '/proc', 'never'],
 	['conns', 'Network per connection, and streams', 'TCP table, the camera\'s stream list', 'never'],
+	['links', 'Links to other devices: round trip, loss, matches', 'the Port Testing app, when it is running', 'links'],   /* 1.9.0 */
 ];
 let setData = null, setForm = null;                     /* as loaded from the camera; as on the page now */
 const daysName = d => d === 30 ? '30 days' : d === 7 ? '7 days' : '24 h';
@@ -1527,9 +1618,11 @@ function drawSettings() {
 	/* What to collect */
 	$('#s-collect').innerHTML = GROUPS.map(g => {
 		const c = (f.collect || {})[g[0]] || {}, always = g[3] === 'always', never = g[3] === 'never';
+		/* 1.9.0: Links: greyed out while the Port Testing app is not installed */
+		const absent = g[3] === 'links' && !!(S.now && S.now.links) && S.now.links.app === 'missing';
 		const sw = (kind, on, dis, why) => '<label class="switch" title="' + esc(why || '') + '"><input type="checkbox" data-g="' + g[0] + '" data-kind="' + kind + '"' + (on ? ' checked' : '') + (dis ? ' disabled' : '') + ' aria-label="' + esc(kind + ' ' + g[1]) + '"><span class="track"></span></label>';
-		return '<tr><td data-l="Metric">' + esc(g[1]) + '</td><td data-l="Show">' + sw('show', always || c.show !== false, always, always ? 'Always on: the other figures need it' : '') + '</td>' +
-			'<td data-l="Send">' + sw('send', !never && g[3] !== 'nometric' && !!c.send, never || g[3] === 'nometric', never ? 'Never sent out' : g[3] === 'nometric' ? 'Not on the Prometheus page' : 'On the Prometheus page') + '</td><td data-l="Read from" class="set-note">' + esc(g[2]) + '</td></tr>';
+		return '<tr' + (absent ? ' class="set-absent"' : '') + '><td data-l="Metric">' + esc(g[1]) + '</td><td data-l="Show">' + sw('show', always || c.show !== false, always || absent, always ? 'Always on: the other figures need it' : '') + '</td>' +
+			'<td data-l="Send">' + sw('send', !never && g[3] !== 'nometric' && !!c.send, never || g[3] === 'nometric' || absent, never ? 'Never sent out' : g[3] === 'nometric' ? 'Not on the Prometheus page' : 'On the Prometheus page') + '</td><td data-l="Read from" class="set-note">' + esc(absent ? 'Port Testing not installed' : g[2]) + '</td></tr>';
 	}).join('');
 	setDirty();
 	applyAccess();
@@ -1675,9 +1768,12 @@ const alOff = k => k !== 'event' && !!(AL.data && AL.data.ways) && !AL.data.ways
 const alMetric = k => (AL.data && AL.data.metrics.find(m => m.key === k)) || { name: k, unit: '' };
 function alFmt(m, v) { v = num(v); if (isNaN(v)) return '–'; const u = alMetric(m).unit; return (Math.abs(v) >= 100 || v === Math.floor(v) ? v.toFixed(0) : v.toFixed(1)) + (u ? ' ' + u : ''); }
 const alFor = s => (s = +s || 0) >= 60 && s % 60 === 0 ? s / 60 + ' min' : s + ' s';
-const alRule = a => alMetric(a.metric).name + ' ' + (a.op === 'below' ? 'below' : 'above') + ' ' + alFmt(a.metric, a.value) + ' for ' + alFor(a.for);
+/* 1.9.0: Link round trip and Link loss come from Port Testing, for one device or any */
+const alIsLink = k => alMetric(k).group === GB.links;
+const alDev = a => alIsLink(a.metric) ? ' to ' + (a.device ? a.device : 'any device') : '';
+const alRule = a => alMetric(a.metric).name + alDev(a) + ' ' + (a.op === 'below' ? 'below' : 'above') + ' ' + alFmt(a.metric, a.value) + ' for ' + alFor(a.for);
 /* The alert as the camera takes it (approval is never asked for any more) */
-const alOut = a => ({ id: a.id || undefined, name: a.name, on: !!a.on, metric: a.metric, op: a.op, value: a.value === '' || a.value == null ? null : +a.value, for: a.for === '' || a.for == null ? null : +a.for, approval: false, to: alTo(a), context: a.context && a.context.text ? a.context : undefined });
+const alOut = a => ({ id: a.id || undefined, name: a.name, on: !!a.on, metric: a.metric, device: alIsLink(a.metric) ? a.device || '' : undefined, op: a.op, value: a.value === '' || a.value == null ? null : +a.value, for: a.for === '' || a.for == null ? null : +a.for, approval: false, to: alTo(a), context: a.context && a.context.text ? a.context : undefined });
 function initAlerts() {
 	$('#al-add').onclick = () => alEdit(null);
 	$('#al-log-close').onclick = () => { AL.logId = null; $('#al-log').hidden = true; };
@@ -1708,7 +1804,8 @@ function initAlerts() {
 		if (!$('#dlg-ctx').hidden) ctxClose(false); else if (!$('#dlg-cfg').hidden) cpClose(); else alClose();
 	});
 	initAlerts163();
-	$('#ae-metric').onchange = () => { $('#ae-unit').textContent = alMetric($('#ae-metric').value).unit; alNowHint(); };
+	$('#ae-metric').onchange = () => { $('#ae-unit').textContent = alMetric($('#ae-metric').value).unit; alDevRow(); alNowHint(); };
+	$('#ae-device').onchange = alNowHint;
 	$('#ae-to').onclick = e => { const c = e.target.closest('button[data-to]'); if (c) { c.classList.toggle('on'); c.setAttribute('aria-pressed', c.classList.contains('on')); } };
 	$('#ae-save').onclick = alSaveEdit;
 	$('#ae-del').onclick = () => {
@@ -1740,12 +1837,12 @@ function drawAlertsTile() {
 }
 function alStatusHtml(a) {
 	const st = a.status || {}, w = st.word || 'Listening', since = st.since ? new Date(st.since * 1000).toLocaleString() : '';
-	const tip = w === 'Listening' ? 'Watching ' + alMetric(a.metric).name + '; now ' + alFmt(a.metric, st.now) + '.'
+	const tip = w === 'Listening' ? 'Watching ' + alMetric(a.metric).name + alDev(a) + '; now ' + alFmt(a.metric, st.now) + '.'
 		: w === 'Triggered' ? 'Sent On since ' + since + '. Now ' + alFmt(a.metric, st.now) + '.'
 		: w === 'Disabled' ? 'Turned off: its event is not published.' : (st.problem || 'Something is wrong.');
 	return '<div class="al-st"><span class="status ' + (AL_ST[w] || 'idle') + '" title="' + esc(tip) + '">' + esc(w) + '</span>' +
-		(st.now != null && w !== 'Disabled' ? '<span class="al-now">now ' + esc(alFmt(a.metric, st.now)) + '</span>' : '') +
-		(w === 'Problem' && st.problem ? '<span class="al-now">' + esc(st.problem) + '</span>' : '') + '</div>';   /* 1.6.5: shown, not in a hover */
+		(st.now != null && w !== 'Disabled' ? '<span class="al-now">now ' + esc(alFmt(a.metric, st.now)) + (st.device && !a.device ? ' · ' + esc(st.device) : '') + '</span>' : '') +
+		((w === 'Problem' || w === 'Waiting') && st.problem ? '<span class="al-now">' + esc(st.problem) + '</span>' : '') + '</div>';   /* 1.6.5: shown, not in a hover; 1.9.0: and why it waits */
 }
 function drawAlerts() {
 	drawAlertsTile();
@@ -1772,7 +1869,11 @@ function alEdit(a) {
 	const e = AL.edit, f = +e.for || 0, mins = f >= 60 && f % 60 === 0;
 	$('#ae-h').textContent = a ? 'Edit alert' : 'Add alert';
 	$('#ae-name').value = e.name || '';
-	$('#ae-metric').innerHTML = ((AL.data && AL.data.metrics) || []).map(m => '<option value="' + m.key + '"' + (m.key === e.metric ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('');
+	/* 1.9.0: the link metrics are offered while Port Testing runs (an alert that already watches one keeps it) */
+	const ptOn = !!AL.data && AL.data.portTesting === 'running';
+	$('#ae-metric').innerHTML = ((AL.data && AL.data.metrics) || []).filter(m => m.group !== GB.links || ptOn || m.key === e.metric)
+		.map(m => '<option value="' + m.key + '"' + (m.key === e.metric ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('');
+	alDevRow(e.device != null ? e.device : (AL.data && AL.data.linkDevices || [])[0] || '');
 	$('#ae-op').value = e.op === 'below' ? 'below' : 'above';
 	$('#ae-value').value = e.value == null ? '' : e.value;
 	$('#ae-unit').textContent = alMetric(e.metric).unit;
@@ -1789,8 +1890,27 @@ function alEdit(a) {
 	$('#dlg-alert').hidden = false;
 	$('#ae-name').focus();
 }
+/* 1.9.0 Device: shown for the link metrics; each device Port Testing has a link to, then Any device. pick: the device
+   to select (null keeps what is selected, or the first device) */
+function alDevRow(pick) {
+	const link = alIsLink($('#ae-metric').value), sel = $('#ae-device');
+	$('#ae-dev-row').hidden = !link;
+	if (!link) return;
+	const was = pick != null ? pick : sel.options.length ? sel.value : null;
+	const names = ((AL.data && AL.data.linkDevices) || []).slice();
+	if (was && !names.includes(was)) names.push(was);           /* a saved device that is not in the reading now */
+	sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('') + '<option value="">Any device</option>';
+	sel.value = was != null && (was === '' || names.includes(was)) ? was : names.length ? names[0] : '';
+}
 function alNowHint() {
-	const k = $('#ae-metric').value, a = AL.data && AL.data.alerts.find(x => x.metric === k && x.status && x.status.now != null);
+	const k = $('#ae-metric').value;
+	if (alIsLink(k)) {                                         /* 1.9.0: the device's value now, from Port Testing */
+		const dn = $('#ae-device').value, ds = linkDevs().filter(d => d.current && (!dn || d.name === dn)), f = k === 'linkloss' ? 'loss' : 'rtt';
+		const vals = ds.map(d => num(d[f])).filter(v => !isNaN(v));
+		$('#ae-now').textContent = !AL.data || AL.data.portTesting !== 'running' ? 'Port Testing is not running' : vals.length ? 'Now ' + alFmt(k, dn ? vals[0] : Math.max(...vals)) + (dn ? '' : ' (highest)') : '';
+		return;
+	}
+	const a = AL.data && AL.data.alerts.find(x => x.metric === k && x.status && x.status.now != null);
 	$('#ae-now').textContent = a ? 'Now ' + alFmt(k, a.status.now) : '';
 }
 function alClose() { $('#dlg-alert').hidden = true; AL.edit = null; }
@@ -1800,7 +1920,7 @@ async function alSaveEdit() {
 	const to = {};
 	$$('#ae-to button[data-to]').forEach(c => { to[c.dataset.to] = c.classList.contains('on'); });
 	const v = $('#ae-value').value, fr = $('#ae-for').value;
-	const n = Object.assign({}, e, { name: $('#ae-name').value.trim(), metric: $('#ae-metric').value, op: $('#ae-op').value, value: v === '' ? '' : +v,
+	const n = Object.assign({}, e, { name: $('#ae-name').value.trim(), metric: $('#ae-metric').value, device: alIsLink($('#ae-metric').value) ? $('#ae-device').value : undefined, op: $('#ae-op').value, value: v === '' ? '' : +v,
 		for: fr === '' ? '' : Math.round(+fr * +$('#ae-forunit').value), on: $('#ae-on').checked, to, context: AL.ctx || undefined });
 	const list = e.id ? AL.data.alerts.map(x => x.id === e.id ? n : x) : AL.data.alerts.concat([n]);
 	const err = await saveAlerts(list, (n.name || 'Alert') + ': saved.');
@@ -1848,12 +1968,12 @@ function drawAlertLog(toEnd) {
 }
 
 /*---------------------------------------------------- 1.6.3 Alerts: Context editor, Workflow view (as in Data Bender) */
-const CTX_TOKENS = ['{value}', '{limit}', '{unit}', '{reading}', '{alert}', '{state}', '{for}', '{count}', '{time}', '{date}', '{camera}', '{serial}', '{ip}',
+const CTX_TOKENS = ['{value}', '{limit}', '{unit}', '{reading}', '{alert}', '{state}', '{for}', '{count}', '{time}', '{date}', '{camera}', '{serial}', '{ip}', '{device}',
 	'{round(value, 1)}', '{pad(count, 4)}', '{upper(alert)}', '{if(value > 95, "critical", "high")}', '{if(state == "On", "ALARM", "clear")}'];
 const AL_HELP = {
 	alerts: 'An alert is a reading past its limit for a while, for example CPU busy above 90 % for 1 min.\nIt is sent as a camera event (for a VMS, or the camera\'s Events › Rules), or to MQTT, InfluxDB or Prometheus when those are on in Settings.\nTest sends On, then Off 3 s later, to each Send to.',
-	context: 'The text sent with the alert\'s camera event, MQTT message and InfluxDB point. Left empty, it sends the reading and the limit, for example "CPU busy 95 % (above 90 % for 60 s)".\nFields: {value} the reading, {limit}, {unit}, {reading} (its name), {alert}, {state} (On or Off), {for}, {count}, {time}, {date}, {camera}, {serial}, {ip}.\nFormulas: + - * / %, round, pad, upper, lower and if(test, then, else), for example {if(value > 95, "critical", "high")}.',
-	when: 'What to watch, the limit, and how long the reading must stay past it before the alert turns On. It turns Off again when the reading is back (after at least 5 s).',
+	context: 'The text sent with the alert\'s camera event, MQTT message and InfluxDB point. Left empty, it sends the reading and the limit, for example "CPU busy 95 % (above 90 % for 60 s)".\nFields: {value} the reading, {limit}, {unit}, {reading} (its name), {alert}, {state} (On or Off), {for}, {count}, {time}, {date}, {camera}, {serial}, {ip}, and for Link round trip and Link loss {device} (the device that crossed the limit).\nFormulas: + - * / %, round, pad, upper, lower and if(test, then, else), for example {if(value > 95, "critical", "high")}.',
+	when: 'What to watch, the limit, and how long the reading must stay past it before the alert turns On. It turns Off again when the reading is back (after at least 5 s).\nLink round trip and Link loss come from the Port Testing app and are offered while it runs: pick a device, or Any device to watch them all. While Port Testing is not running such an alert waits and sends nothing.',
 	counter: '{count} goes up each time the alert turns On. Test does not move it. Reset picks when it starts again from Start at.'
 };
 function initAlerts163() {
@@ -1899,7 +2019,7 @@ function setAlView(v) {
 /* The Context row in Edit alert, and its preview */
 function alFormNow() {
 	const v = $('#ae-value').value, fr = $('#ae-for').value;
-	return { id: AL.edit && AL.edit.id, name: $('#ae-name').value.trim(), metric: $('#ae-metric').value, op: $('#ae-op').value,
+	return { id: AL.edit && AL.edit.id, name: $('#ae-name').value.trim(), metric: $('#ae-metric').value, device: alIsLink($('#ae-metric').value) ? $('#ae-device').value : undefined, op: $('#ae-op').value,
 		value: v === '' ? 0 : +v, for: fr === '' ? 0 : Math.round(+fr * +$('#ae-forunit').value) };
 }
 async function alCtxRow() {

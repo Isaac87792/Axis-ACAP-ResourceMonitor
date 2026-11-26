@@ -7,7 +7,7 @@
             "vendor": "axis@addcotx.com",
             "vendorId": "69ff2e8944",
             "runMode": "respawn",
-            "version": "1.8.0",
+            "version": "1.9.0",
             "compatibleOsVersions": [
                 {
                     "min": "12.8",

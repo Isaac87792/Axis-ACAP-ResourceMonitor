@@ -21,10 +21,12 @@ cJSON* sampler_power_history_json(int seconds);     /* the camera's own power lo
 cJSON* sampler_camera_json(void);                    /* what the camera itself reports: streams, disk health and recording space, time sync, security */
 
 /* 1.3.0: Settings. Groups of readings: a group neither shown nor sent is not read at all. */
-enum { G_CPU = 1, G_MEM = 2, G_STORAGE = 4, G_NET = 8, G_TEMP = 16, G_POWER = 32, G_DLPU = 64, G_PROCS = 128, G_CONNS = 256, G_EVENTS = 512 /* 1.6.5: no longer read (camera events removed); the bit stays so saved settings keep their meaning */, G_ALL = 1023 };
+enum { G_CPU = 1, G_MEM = 2, G_STORAGE = 4, G_NET = 8, G_TEMP = 16, G_POWER = 32, G_DLPU = 64, G_PROCS = 128, G_CONNS = 256, G_EVENTS = 512 /* 1.6.5: no longer read (camera events removed); the bit stays so saved settings keep their meaning */,
+	G_LINKS = 1024 /* 1.9.0: links to other devices, from the Port Testing app (links.c) */, G_ALL = 2047 };
 enum { PS_AUTO, PS_CAMERA, PS_APP, PS_OFF };          /* where power figures come from */
 typedef struct { int historyDays; int powerSource; unsigned collect; int tempF; } SamplerSettings;   /* tempF: show temperatures in °F (1.6.1) */
 void   sampler_apply(const SamplerSettings* s);       /* any thread; history storage follows on the next reading */
+unsigned sampler_collect(void);                       /* 1.9.0: the groups read now (shown, sent or alerted on; any thread) */
 cJSON* sampler_store_json(void);                     /* where history is kept: the card's state, each tier's size and points */
 int    sampler_card_ok(void);                         /* 1 when there is an SD card folder this app can write */
 int    sampler_power_log_known(void);                 /* -1 not known yet, 0 no, 1 the camera keeps a power log */

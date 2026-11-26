@@ -97,6 +97,15 @@ static void walk(const PromSnap* p, Walk* w) {
 		w->fam(w, "axis_rm_ai_jobs_per_second", "gauge", "AI chip jobs a second.");
 		S(w, "axis_rm_ai_jobs_per_second", NULL, NULL, NULL, NULL, p->aiJobs);
 	}
+	if ((p->send & PG_LINKS) && p->linkN > 0) {        /* 1.9.0: only while Port Testing runs and answers */
+		w->group = "links";
+		w->fam(w, "resource_monitor_link_rtt_ms", "gauge", "Round trip to each device Port Testing has a link to, milliseconds.");
+		for (int i = 0; i < p->linkN && i < PROM_LINKS; i++) S(w, "resource_monitor_link_rtt_ms", "device", p->linkName[i], NULL, NULL, p->linkRtt[i]);
+		w->fam(w, "resource_monitor_link_rtt_p95_ms", "gauge", "Round trip to each device, 95th percentile, milliseconds.");
+		for (int i = 0; i < p->linkN && i < PROM_LINKS; i++) S(w, "resource_monitor_link_rtt_p95_ms", "device", p->linkName[i], NULL, NULL, p->linkP95[i]);
+		w->fam(w, "resource_monitor_link_loss_percent", "gauge", "Updates lost on the link to each device, percent.");
+		for (int i = 0; i < p->linkN && i < PROM_LINKS; i++) S(w, "resource_monitor_link_loss_percent", "device", p->linkName[i], NULL, NULL, p->linkLoss[i]);
+	}
 	w->group = NULL;
 }
 
@@ -166,6 +175,13 @@ char* prom_render(const PromSnap* p, int* count) {
 	return o.b;
 }
 
+/* A metric's name for MQTT and InfluxDB: without "axis_rm_" or (1.9.0) "resource_monitor_" */
+static const char* short_name(const char* name) {
+	if (!strncmp(name, "axis_rm_", 8)) return name + 8;
+	if (!strncmp(name, "resource_monitor_", 17)) return name + 17;
+	return name;
+}
+
 /*----------------------------------------------------- JSON for MQTT, one object per group */
 static void no_fam(Walk* w, const char* name, const char* type, const char* help) { (void)w; (void)name; (void)type; (void)help; }
 static cJSON* obj(cJSON* parent, const char* key) {
@@ -176,7 +192,7 @@ static cJSON* obj(cJSON* parent, const char* key) {
 static void j_smp(Walk* w, const char* name, const char* l1, const char* v1, const char* l2, const char* v2, double v) {
 	(void)l1; (void)l2;
 	cJSON* g = obj(w->u, w->group);
-	const char* k = strncmp(name, "axis_rm_", 8) ? name : name + 8;
+	const char* k = short_name(name);
 	if (!v1) { cJSON_AddNumberToObject(g, k, v); return; }
 	cJSON* m = obj(g, k);
 	if (v2) m = obj(m, v1);
@@ -214,7 +230,7 @@ static void i_smp(Walk* w, const char* name, const char* l1, const char* v1, con
 	if (k < 0) return;
 	Buf* f = &c->l[k].fields;
 	if (f->n) put(f, ",");
-	esc_tag(f, strncmp(name, "axis_rm_", 8) ? name : name + 8);
+	esc_tag(f, short_name(name));
 	put(f, "=");
 	num_put(f, v);
 	if (v == floor(v) && fabs(v) < 1e15) put(f, ".0");    /* always a float, so a field never changes type */

@@ -34,6 +34,7 @@ char* ACAP_VAPIX_Post_Background(const char* request, const char* body);
 #include "sampler.h"
 #include "netconn.h"
 #include "store.h"
+#include "links.h"
 #include "prom.h"
 #include <errno.h>
 #include <syslog.h>
@@ -93,6 +94,8 @@ typedef struct {
 	float x[X_N];                               /* the 1.1 readings (X_...) */
 	float iops[MAX_DSK];                        /* reads and writes a second, per device (live only) */
 	float coreWork[MAX_CORES][4];               /* each core: user, system, waiting on disk, interrupts (%) */
+	float lrtt[LINK_MAX], lloss[LINK_MAX];      /* 1.9.0: round trip (ms) and loss (%) per device place, from Port Testing */
+	int linkN;                                  /* places in use; 0 when Port Testing gave no fresh reading */
 } Sample;
 
 typedef struct {
@@ -2145,6 +2148,8 @@ void sampler_apply(const SamplerSettings* s) {
 	g_mutex_unlock(&cfgLock);
 }
 
+unsigned sampler_collect(void) { return cfg_get().collect; }
+
 int sampler_card_ok(void) { return cardState == 1; }
 
 int sampler_power_log_known(void) {
@@ -2347,6 +2352,7 @@ void sampler_tick(void) {
 	}
 	s.apps = (float)n.appsCpu;
 	for (int c = 0; c < MAX_CORES; c++) s.coresApps[c] = c < cores ? n.coresApps[c] : NAN;
+	s.linkN = links_now(s.lrtt, s.lloss);              /* 1.9.0: the latest from Port Testing (read every 5 s on its own thread) */
 
 	g_mutex_lock(&lock);
 	if (col & G_TEMP) heater_track(&n, s.tms / 1000);
@@ -2509,6 +2515,11 @@ static cJSON* sample_json(const Sample* s, int cores) {
 		cJSON_AddItemToArray(cw, b);
 	}
 	x_json(o, s->x, s->iops);
+	if (s->linkN > 0) {                                  /* 1.9.0: per device place, as links in "now" lists them */
+		cJSON* lr = cJSON_AddArrayToObject(o, "lrtt");
+		cJSON* ll = cJSON_AddArrayToObject(o, "lloss");
+		for (int i = 0; i < s->linkN && i < LINK_MAX; i++) { arr_num(lr, s->lrtt[i]); arr_num(ll, s->lloss[i]); }
+	}
 	const LiveTop* lt = &liveTop[s->seq % LIVE_N];
 	if (lt->seq == s->seq) {
 		cJSON* tp = cJSON_AddObjectToObject(o, "top");
@@ -2624,6 +2635,7 @@ cJSON* sampler_live_json(long since, long max) {
 		}
 	}
 	if (now.dlpu[0]) cJSON_AddStringToObject(cJSON_AddObjectToObject(n, "dlpu"), "kind", now.dlpu);
+	cJSON_AddItemToObject(n, "links", links_json());   /* 1.9.0: Port Testing's state, its devices and matches */
 	/* The five busiest by CPU and by memory, for the list beside the graph */
 	cJSON* tc = cJSON_AddArrayToObject(out, "topCpu");
 	for (guint i = 0; i < scan->len && i < 5; i++) cJSON_AddItemToArray(tc, proc_json(&g_array_index(scan, ProcSum, i)));
@@ -2751,6 +2763,7 @@ cJSON* sampler_history_json(int seconds, int points) {
 	cJSON_AddNumberToObject(out, "kept", histCount * HIST_STEP);
 	/* Oldest first, in groups of `per`; each group keeps its peaks and the top 10 at its busiest */
 	int first = (histHead - have + HIST_N) % HIST_N;
+	gint64 prevT = have ? hist[first].t - (gint64)HIST_STEP : 0;   /* 1.9.0: the links' points from after the group before */
 	for (int g = 0; g < have; g += per) {
 		HistPoint agg;
 		memset(&agg, 0, sizeof(agg));
@@ -2795,6 +2808,17 @@ cJSON* sampler_history_json(int seconds, int points) {
 		if (ioN) {                                      /* waiting on the disk over the group: the 5 names blocked longest */
 			for (int a = 0; a < ioN; a++) for (int b2 = a + 1; b2 < ioN; b2++) if (ioAcc[b2].val > ioAcc[a].val) { TopEntry t = ioAcc[a]; ioAcc[a] = ioAcc[b2]; ioAcc[b2] = t; }
 			cJSON_AddItemToObject(o, "ioTop", top_json(ioAcc, ioN < IOTOP ? ioN : IOTOP));
+		}
+		{                                               /* 1.9.0: links to other devices, peaks over the group (24 h kept) */
+			float lr[LINK_MAX], ll[LINK_MAX];
+			if (links_hist(prevT, agg.t, lr, ll)) {
+				int last = 0;
+				for (int k = 0; k < LINK_MAX; k++) if (!isnan(lr[k]) || !isnan(ll[k])) last = k + 1;
+				cJSON* a1 = cJSON_AddArrayToObject(o, "lrtt");
+				cJSON* a2 = cJSON_AddArrayToObject(o, "lloss");
+				for (int k = 0; k < last; k++) { arr_num(a1, lr[k]); arr_num(a2, ll[k]); }
+			}
+			prevT = agg.t;
 		}
 		cJSON_AddItemToArray(arr, o);
 	}
@@ -2983,6 +3007,7 @@ void sampler_snapshot(void* ps, unsigned send) {
 	p->hasAi = n->dlpu[0] != 0;
 	p->aiJobs = s.x[X_INFER];
 	g_mutex_unlock(&lock);
+	links_snap(p);                                  /* 1.9.0: links to other devices, while Port Testing answers */
 }
 char* sampler_metrics(unsigned send, const char* model, const char* os, const char* appVer, int* count) {
 	PromSnap* p = g_new0(PromSnap, 1);

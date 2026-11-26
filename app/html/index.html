@@ -312,6 +312,7 @@
 		<table class="acap-table set-rows al-form"><colgroup><col class="c-set"><col></colgroup><tbody>
 			<tr><td>Name</td><td><input type="text" id="ae-name" maxlength="63" placeholder="e.g. CPU high" aria-label="Name"></td></tr>
 			<tr><td>When</td><td><div class="al-when"><select id="ae-metric" aria-label="What to watch"></select><select id="ae-op" aria-label="Above or below"><option value="above">above</option><option value="below">below</option></select><input type="number" id="ae-value" step="any" aria-label="Limit"><span class="al-unit" id="ae-unit"></span><span class="al-unit">for</span><input type="number" id="ae-for" min="0" step="1" aria-label="For how long"><select id="ae-forunit" aria-label="Seconds or minutes"><option value="1">s</option><option value="60">min</option></select></div><div class="hint small" id="ae-now"></div></td></tr>
+			<tr id="ae-dev-row" hidden><td>Device</td><td><div class="al-when"><select id="ae-device" aria-label="Device"></select><span class="hint small">From Port Testing</span></div></td></tr>
 			<tr><td>Send to</td><td><div id="ae-to"></div></td></tr>
 			<tr><td>Context</td><td><div class="ctx-line"><code id="ae-ctx"></code><button type="button" class="btn" id="ae-ctx-edit">Edit context…</button></div><div class="hint small" id="ae-ctx-next"></div></td></tr>
 			<tr><td>Enabled</td><td><label class="switch"><input type="checkbox" id="ae-on" aria-label="Enabled"><span class="track"></span></label></td></tr>

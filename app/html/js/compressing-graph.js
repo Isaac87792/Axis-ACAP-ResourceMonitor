@@ -26,6 +26,10 @@
  * also fits the middle label. Light and dark (1.8.0): colour options left out are the page's --kit-g-* colour tokens,
  * read again whenever the page's theme (data-theme on <html>) changes, so every graph follows it on its next frame;
  * series.fillColor colours the area under a line (the line's own colour when left out).
+ * Periods (1.9.0): periods [{ t0, t1, label }] (clock seconds, as push()) are drawn as light bands behind the lines,
+ * edged with a dashed line, each labelled at its top left; setPeriods(list) changes them without setting anything
+ * else up again. periodFill, periodEdge and periodText colour them; periodLegend, when set, adds a key at the end
+ * of the legend.
  */
 (function (global) {
   'use strict';
@@ -52,6 +56,7 @@
     textColor: '--kit-g-text', titleColor: '--kit-g-title', cursorColor: '--kit-g-cursor',
     markerColor: '--kit-g-marker', markerEdge: '--kit-g-marker-edge',
     tipBackground: '--kit-g-tip-bg', tipBorder: '--kit-g-tip-border', tipText: '--kit-g-tip-text',
+    periodFill: '--kit-g-band', periodEdge: '--kit-g-border', periodText: '--kit-g-text',   // Resource Monitor 1.9.0
   };
   let themed = null;
   function theme() {
@@ -119,6 +124,8 @@
     gapFactor: 3,         // break the line after this many missed measurements
     font: '11px "Segoe UI", Calibri, sans-serif',
     valueFormat: null,    // (value, series) => string for the hover readout
+    periods: [],          // Resource Monitor 1.9.0: [{ t0, t1, label }] shaded behind the lines
+    periodFill: null, periodEdge: null, periodText: null, periodLegend: '',
   };
 
   // ---- maths ------------------------------------------------------------
@@ -205,6 +212,7 @@
     }
 
     clear() { this.samples = []; }
+    setPeriods(list) { this.o.periods = list || []; }
     setOptions(p) {
       // A new interval changes the pace from now on: what is drawn keeps its place and moves on at the new pace.
       if (p.interval != null && p.interval !== this.o.interval) {
@@ -390,6 +398,7 @@
 
       ctx.save();
       ctx.beginPath(); ctx.rect(L, T, R - L, B - T); ctx.clip();
+      this._drawPeriods(gd);
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       const tips = [];
       const gap = o.gapFactor;
@@ -480,6 +489,34 @@
       if (this.hoverX != null && this.hoverX >= L && this.hoverX <= R) this._drawHover(gd);
     }
 
+    // Resource Monitor 1.9.0: each period as a light band from its start to its end, a dashed edge, its label at the
+    // top left, running on past the band up to the next band (or the right edge). Called with the plot clipped.
+    _drawPeriods(gd) {
+      const o = this.o, ctx = this.ctx, { L, R, T, B } = this;
+      if (!o.periods || !o.periods.length) return;
+      const bands = [];
+      for (const p of o.periods) {
+        const xa = this._xOf(gd - this._G(p.t0)), xb = this._xOf(gd - Math.min(this._G(p.t1), gd));
+        const x0 = Math.max(L, Math.min(xa, xb)), x1 = Math.min(R, Math.max(xa, xb, x0 + 1));
+        if (x1 > L && x0 < R) bands.push({ x0, x1, label: p.label });
+      }
+      bands.sort((a, b) => a.x0 - b.x0);
+      bands.forEach((b, k) => {
+        ctx.fillStyle = this._c('periodFill');
+        ctx.fillRect(b.x0, T, b.x1 - b.x0, B - T);
+        ctx.save();
+        ctx.strokeStyle = this._c('periodEdge'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.strokeRect(Math.round(b.x0) + 0.5, T + 0.5, Math.max(1, Math.round(b.x1 - b.x0) - 1), B - T - 1);
+        const room = (k + 1 < bands.length ? bands[k + 1].x0 : R) - b.x0;
+        if (b.label && room > 24) {
+          ctx.beginPath(); ctx.rect(b.x0, T, room, B - T); ctx.clip();
+          ctx.fillStyle = this._c('periodText'); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          ctx.fillText(b.label, b.x0 + 4, T + 10);
+        }
+        ctx.restore();
+      });
+    }
+
     // Axes with auto: true glide their max toward a nice ceiling of the largest value in view.
     _autoScale() {
       const o = this.o;
@@ -553,6 +590,12 @@
       if (o.legend) for (const ser of o.series) {
         ctx.fillStyle = ser.legendColor || ser.color; ctx.textAlign = 'left';
         ctx.fillText(ser.name, x, T / 2); x += ctx.measureText(ser.name).width + 14;
+      }
+      if (o.legend && o.periodLegend) {   // Resource Monitor 1.9.0: the key for the shaded periods
+        ctx.fillStyle = this._c('periodFill'); ctx.fillRect(x, T / 2 - 5, 10, 10);
+        ctx.save(); ctx.strokeStyle = this._c('periodEdge'); ctx.setLineDash([2, 2]); ctx.strokeRect(x + 0.5, T / 2 - 4.5, 9, 9); ctx.restore();
+        ctx.fillStyle = this._c('textColor'); ctx.textAlign = 'left';
+        ctx.fillText(o.periodLegend, x + 14, T / 2);
       }
       if (o.title && o.titleInside) {
         ctx.fillStyle = this._c('titleColor'); ctx.textAlign = 'left';

@@ -21,9 +21,10 @@
 #define MAX_PORTS   16
 #define LOG(fmt, args...) { syslog(LOG_INFO, fmt, ## args); printf(fmt, ## args); }
 
-static const char* GROUP[] = { "cpu", "mem", "storage", "net", "temp", "power", "dlpu", "procs", "conns", "events" };
-static const char* GROUP_NAME[] = { "CPU", "Memory", "Storage", "Network", "Temperature", "Power", "AI chip", "Processes", "Connections", "Camera events" };
-#define GROUPS 10
+/* 1.9.0 "links": links to other devices, from the Port Testing app (a file from before it has it shown, not sent) */
+static const char* GROUP[] = { "cpu", "mem", "storage", "net", "temp", "power", "dlpu", "procs", "conns", "events", "links" };
+static const char* GROUP_NAME[] = { "CPU", "Memory", "Storage", "Network", "Temperature", "Power", "AI chip", "Processes", "Connections", "Camera events", "Links to other devices" };
+#define GROUPS 11
 static const char* PS_KEY[] = { "auto", "camera", "app", "off" };
 static const char* PS_NAME[] = { "automatic", "the camera's power log", "recorded by Resource Monitor", "off" };
 

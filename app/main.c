@@ -29,6 +29,7 @@
 #include "alerts.h"
 #include "kit.h"
 #include "cfgsections.h"
+#include "links.h"
 
 #define APP_PACKAGE "resource_monitor"
 #define LOG_MAX     100
@@ -105,6 +106,7 @@ static gboolean poll_apps(gpointer user_data) {
 	char* xml = ACAP_VAPIX_Get("applications/list.cgi");
 	if (!xml) return G_SOURCE_CONTINUE;
 	cJSON* list = cJSON_CreateArray();
+	int portTesting = LA_MISSING;                       /* 1.9.0: links.c reads Port Testing only while it runs */
 	for (const char* p = strstr(xml, "<application "); p; p = strstr(p + 1, "<application ")) {
 		const char* end = strchr(p, '>');
 		if (!end) break;
@@ -133,9 +135,11 @@ static gboolean poll_apps(gpointer user_data) {
 			g_free(what);
 		}
 		g_hash_table_replace(lastStatus, g_strdup(id), g_strdup(st));
+		if (!strcmp(id, "port_testing")) portTesting = !strcmp(st, "Running") ? LA_RUNNING : LA_STOPPED;
 		g_free(id); g_free(nice); g_free(vendor); g_free(version); g_free(st);
 	}
 	free(xml);
+	links_set_app(portTesting);
 	g_mutex_lock(&appsLock);
 	if (apps) cJSON_Delete(apps);
 	apps = list;
@@ -551,7 +555,8 @@ int main(void) {
 
 	sampler_init();
 	config_load();                                       /* the saved settings, before the first reading */
-	poll_apps(NULL);                                     /* first, so the first reading already knows which apps are Axis's */
+	links_init();                                        /* 1.9.0: Port Testing's links, read on their own thread while it runs */
+	poll_apps(NULL);                                    /* first, so the first reading already knows which apps are Axis's */
 	sampler_tick();
 	ACAP_HTTP_Node("live", HTTP_live);
 	ACAP_HTTP_Node("history", HTTP_history);
@@ -588,6 +593,7 @@ int main(void) {
 	GSource* sig = g_unix_signal_source_new(SIGTERM);
 	if (sig) { g_source_set_callback(sig, signal_handler, NULL, NULL); g_source_attach(sig, NULL); }
 	g_main_loop_run(main_loop);
+	links_stop();                                        /* 1.9.0: no more reads of Port Testing */
 	alerts_stop();                                       /* Off for every triggered alert */
 	sendout_stop();                                      /* MQTT says "offline" */
 	sampler_stop();                                      /* history still waiting goes to the SD card */

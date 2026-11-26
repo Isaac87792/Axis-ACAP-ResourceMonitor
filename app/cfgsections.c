@@ -22,7 +22,7 @@ static const char* const MAIN_KEYS[] = { "historyDays", "powerSource", "poePorts
 static const char* const OUT_KEYS[] = { "mqtt", "influx", NULL };
 static const char* const MQTT_KEYS[] = { "on", "host", "port", "tls", "checkName", "user", "password", "clientId", "prefix", "haDiscovery", "interval", NULL };
 static const char* const INFLUX_KEYS[] = { "on", "url", "version", "database", "user", "password", "org", "bucket", "token", "checkName", "interval", NULL };
-static const char* const ALERT_KEYS[] = { "id", "name", "on", "metric", "op", "value", "for", "approval", "to", "context", "status", NULL };
+static const char* const ALERT_KEYS[] = { "id", "name", "on", "metric", "device", "op", "value", "for", "approval", "to", "context", "status", NULL };   /* device: 1.9.0 */
 
 static gboolean in_set(const char* const* set, const char* key) {
 	for (int k = 0; key && set[k]; k++) if (strcmp(set[k], key) == 0) return TRUE;
