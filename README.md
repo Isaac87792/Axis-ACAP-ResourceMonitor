@@ -60,7 +60,7 @@ Every alert has a Test button (sends On, then Off 3 seconds later) and its own l
 
 - **Your own message:** each alert can send its own Context text, built from fields such as `{value}`, `{limit}`, `{unit}`, `{alert}`, `{state}`, `{count}` and `{camera}`, with simple formulas, for example `{alert} #{count} on {camera}: {value} {unit}`. The editor shows what the next alert would send. Without one, it sends the reading and the limit.
 - **Workflow view:** each alert drawn as a flowchart (reading, limit, how long, where it goes), with the steps its last alarm reached.
-- **Export and Import:** copy alerts from one camera to others with a file.
+- **Copy settings to other cameras:** on the Settings tab, export the settings, alerts and send-out setup you choose to a file, and import it on other cameras with Replace or Merge, a preview first and Undo after. Passwords and tokens are never in the file.
 
 ![Alerts: one line per alert with where it is sent and its status](docs/screenshots/alerts.png)
 
@@ -74,6 +74,13 @@ Every alert has a Test button (sends On, then Off 3 seconds later) and its own l
 Sending is off until you turn it on, and you choose per metric what is shown and what is sent.
 
 ![Settings: display, power, history, send out and what to collect](docs/screenshots/settings.png)
+
+## Works with Data Bender
+Resource Monitor and [Data Bender](https://github.com/Isaac87792/Axis-ACAP-DataBender) are made to run side by side on the same camera.
+- **Give alerts the names you want.** Each alert is a camera event, so a Data Bender rule can take it as its source and send it again under a short name, only when it lasts, or with its own Context text.
+- **Keep an eye on Data Bender.** Data Bender shows up under Apps and Processes like every other app, and its own resource bar links to Resource Monitor's graphs.
+- **One look, one way of working.** Both use the same dark layout, colours (the camera in grey, apps in yellow), Help (i) buttons, Test and Log buttons, and Workflow view.
+- **Set up many cameras the same way.** Both have "Copy settings to other cameras" with the same file format, Replace or Merge, a preview and Undo. Build the alerts and rules on one camera, then copy both apps' settings to the rest.
 
 ## Built to be a good guest on the camera
 
