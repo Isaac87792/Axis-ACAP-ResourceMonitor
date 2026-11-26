@@ -103,7 +103,9 @@ Resource Monitor and [Data Bender](https://github.com/Isaac87792/Axis-ACAP-DataB
 ## Requirements
 
 - An Axis camera with an **ARTPEC-8 or newer** chip (aarch64).
-- The camera setting **Allow unsigned apps** turned on (Apps › settings in the camera's web page).
+- **AXIS OS 12.8 up to AXIS OS 13.**
+- AXIS OS 13 runs only apps signed by Axis: use a signed release. A package you build yourself is unsigned and needs the camera setting **Allow unsigned apps** (AXIS OS 12).
+- **On AXIS OS 12 older than 12.8?** Upgrade to 12.8 or later before you move to AXIS OS 13, then reinstall this app. Older 12.x firmware doesn't keep the app's signature, so after the move to AXIS OS 13 the app shows as unsigned and may not run.
 - An SD card is optional: it lets history be kept for 7 or 30 days.
 
 ## Install
