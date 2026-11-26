@@ -2551,10 +2551,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		const ver = setup && setup.setup && setup.setup.version;
 		$('#app-ver').textContent = ver || '';
 		S.device = d;
-		$('#f-model').textContent = d.model || 'Axis camera';
-		$('#f-sn').textContent = d.serial || '–';
+		/* The same facts as the UI kit's header: AXIS model, AXIS OS, chip and cores, uptime, Live (no serial number) */
+		$('#f-model').textContent = d.model && d.model !== 'Unknown' ? 'AXIS ' + d.model.replace(/^AXIS\s+/i, '') : 'Axis camera';
 		$('#f-os').textContent = d.firmware || '–';
-		S.chip = d.platform && d.platform !== 'Unknown' ? d.platform.replace(/^axiss+/i, '').toUpperCase() : (d.chip && d.chip !== 'Unknown' ? d.chip : '');
+		S.chip = d.platform && d.platform !== 'Unknown' ? d.platform.replace(/^axis\s+/i, '').toUpperCase() : (d.chip && d.chip !== 'Unknown' ? d.chip.replace(/^axis\s+/i, '') : '');
 	}).catch(() => {});
 	pollApps();
 	pollCamera();
