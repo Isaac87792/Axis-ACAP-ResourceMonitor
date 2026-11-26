@@ -52,6 +52,16 @@ for ARCH in "${ARCHES[@]}"; do
 		acap-build . -a 'settings/settings.json' -a 'settings/events.json'
 	"
 	umount "$SDK/proc"
+	# AXIS OS 13 refuses to start an app whose binary has an executable stack (GNU_STACK RWE): fail the build instead
+	command -v readelf >/dev/null || { echo "readelf is missing: cannot check for an executable stack" >&2; exit 3; }
+	for EAP in "$WORK"/*.eap; do
+		CHK=$(mktemp -d)
+		tar xzf "$EAP" -C "$CHK"
+		BAD=$(find "$CHK" -type f -exec sh -c 'readelf -lW "$1" 2>/dev/null | grep -q "GNU_STACK.*RWE" && echo "${1#$2/}"' _ {} "$CHK" \;)
+		rm -rf "$CHK"
+		if [ -n "$BAD" ]; then echo "Executable stack (AXIS OS 13 will not start it) in $(basename "$EAP"): $BAD" >&2; exit 4; fi
+		echo "== No executable stack in $(basename "$EAP")"
+	done
 	cp "$WORK"/*.eap "$PWD/"
 	rm -rf "$WORK"
 	trap - EXIT
