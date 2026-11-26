@@ -23,7 +23,9 @@
  * Resource Monitor copy: additions to the reference, all opt-in: axes.left.zero + zeroColor (a brighter line at that
  * value); series.band (1.5.0: a series drawn as faint shaded bands behind the lines wherever its value is over 0.5,
  * e.g. the heater's On periods, never as a line; series.legendColor colours its legend name). Fix: the label gutter
- * also fits the middle label.
+ * also fits the middle label. Light and dark (1.8.0): colour options left out are the page's --kit-g-* colour tokens,
+ * read again whenever the page's theme (data-theme on <html>) changes, so every graph follows it on its next frame;
+ * series.fillColor colours the area under a line (the line's own colour when left out).
  */
 (function (global) {
   'use strict';
@@ -44,6 +46,47 @@
   // stays visible instead of hiding in the bottom border.
   const ZERO_LIFT = 3;
 
+  // Colours not given in the options: the page's tokens, read once and again after each change of theme.
+  const TOKENS = {
+    background: '--kit-g-bg', plotBackground: '--kit-g-plot', border: '--kit-g-border', grid: '--kit-g-grid',
+    textColor: '--kit-g-text', titleColor: '--kit-g-title', cursorColor: '--kit-g-cursor',
+    markerColor: '--kit-g-marker', markerEdge: '--kit-g-marker-edge',
+    tipBackground: '--kit-g-tip-bg', tipBorder: '--kit-g-tip-border', tipText: '--kit-g-tip-text',
+  };
+  let themed = null;
+  function theme() {
+    if (!themed) {
+      const cs = getComputedStyle(document.documentElement);
+      themed = {};
+      for (const k in TOKENS) themed[k] = cs.getPropertyValue(TOKENS[k]).trim();
+    }
+    return themed;
+  }
+  new MutationObserver(() => { themed = null; })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  // "r,g,b" of any CSS colour (#rgb, #rrggbb(aa), rgb(), hsl(), a name...), for the fading area under a line. A canvas
+  // reads it: fillStyle keeps its old value when given something it can't read, so the colour is set over two different
+  // starting values and taken only when both give the same answer. Not a colour: the reference's neutral grey.
+  const FALLBACK_RGB = '214,214,214';
+  let probe = null;
+  const rgbCache = new Map();
+  function rgbOf(c) {
+    c = String(c || '').trim();
+    if (rgbCache.has(c)) return rgbCache.get(c);
+    probe = probe || document.createElement('canvas').getContext('2d');
+    probe.fillStyle = 'transparent'; probe.fillStyle = c; const a = probe.fillStyle;
+    probe.fillStyle = 'black'; probe.fillStyle = c; const b = probe.fillStyle;
+    let out = FALLBACK_RGB;
+    if (c && a === b) {
+      const h = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(a), m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(a);
+      if (h) out = [h[1], h[2], h[3]].map(x => parseInt(x, 16)).join(',');
+      else if (m) out = [m[1], m[2], m[3]].map(v => Math.round(+v)).join(',');
+    }
+    if (rgbCache.size > 200) rgbCache.clear();
+    rgbCache.set(c, out);
+    return out;
+  }
+
   const DEFAULTS = {
     across: 36,           // measurements across the full width (clip: ~32 samples in 36 s at ~1.1 s each)
     window: null,         // or seconds across the width at the starting interval: across = window / interval
@@ -53,16 +96,17 @@
     compression: 17,      // used by 'log': window / tau (17 = newest 10% of time takes ~34% of width)
     interval: 1,          // expected seconds between samples (also the display delay); may change while running
     clock: () => Date.now() / 1000, // seconds; must match the timestamps given to push()
-    series: [],           // [{ name, key?, color, axis: 'left'|'right', width? }]
+    series: [],           // [{ name, key?, color, fillColor?, axis: 'left'|'right', width? }]
     axes: {
-      left:  { min: 0, max: 100, unit: '%', color: '#3fd04f', labels: true },
+      left:  { min: 0, max: 100, unit: '%', color: null, labels: true },   // color null: textColor
       right: null,        // same shape, or null; log: true makes it logarithmic (min > 0; version 2.2)
     },
-    title: '', titleInside: false, titleColor: '#c9ced4',
+    title: '', titleInside: false,
+    // Colours: null takes the page's token (TOKENS above), so the graph follows the page's light or dark theme
+    titleColor: null, background: null, plotBackground: null, border: null, grid: null, textColor: null,
+    cursorColor: null, markerColor: null, markerEdge: null, tipBackground: null, tipBorder: null, tipText: null,
     legend: true,
     footerLeft: '', footerRight: '',   // string or () => string
-    background: '#1b1e21', plotBackground: '#1d2124',
-    border: '#3fbf3f', grid: '#363c41', textColor: '#9aa3ab',
     hGridPx: 18,          // horizontal grid pitch in px (clip: 18 px); hDivisions overrides it
     hDivisions: null,
     gridStep: null,       // seconds between vertical grid lines at the starting interval; null = auto (clip: one per sample)
@@ -322,14 +366,17 @@
       return this.B - ZERO_LIFT - ((v - ax.min) / (ax.max - ax.min)) * (this.B - this.T - ZERO_LIFT);
     }
 
+    // A colour option, or the page's token for it
+    _c(k) { return this.o[k] || theme()[k]; }
+
     _draw() {
       const o = this.o, ctx = this.ctx;
       const gd = this._gd();  // display position: one measurement behind, so the tip is interpolated
       const { L, R, T, B } = this;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.font = o.font;
-      ctx.fillStyle = o.background; ctx.fillRect(0, 0, this.w, this.h);
-      ctx.fillStyle = o.plotBackground; ctx.fillRect(L, T, R - L, B - T);
+      ctx.fillStyle = this._c('background'); ctx.fillRect(0, 0, this.w, this.h);
+      ctx.fillStyle = this._c('plotBackground'); ctx.fillRect(L, T, R - L, B - T);
       this._autoScale();
       this._drawGrid(gd);
       this._drawText();
@@ -411,7 +458,7 @@
           /* Filled look: the area under the line fades from the line's colour to nothing at the bottom */
           if (!ser.noFill) { ctx.save(); ctx.lineTo(fxl, B); ctx.lineTo(fx0, B); ctx.closePath();
             const top = Math.min(...V.map(v => this._y(v, axis))), many = o.series.filter(x => !x.band).length > 2;
-            const h = String(ser.color).replace('#', ''), rgb = h.length === 6 ? [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)).join(',') : '214,214,214';
+            const rgb = rgbOf(ser.fillColor || ser.color);
             const gr = ctx.createLinearGradient(0, top, 0, B); gr.addColorStop(0, 'rgba(' + rgb + ',' + (many ? .22 : .42) + ')'); gr.addColorStop(1, 'rgba(' + rgb + ',0.02)');
             ctx.fillStyle = gr; ctx.fill(); ctx.restore(); }
         }
@@ -423,11 +470,11 @@
         const y = Math.min(B, Math.max(T, tp.y));
         ctx.beginPath();
         ctx.moveTo(R - 7, y); ctx.lineTo(R, y - 4.5); ctx.lineTo(R, y + 4.5); ctx.closePath();
-        ctx.fillStyle = '#fff'; ctx.fill();
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 0.8; ctx.stroke();
+        ctx.fillStyle = this._c('markerColor'); ctx.fill();
+        ctx.strokeStyle = this._c('markerEdge'); ctx.lineWidth = 0.8; ctx.stroke();
       }
 
-      ctx.strokeStyle = o.border; ctx.lineWidth = 1;
+      ctx.strokeStyle = this._c('border'); ctx.lineWidth = 1;
       ctx.strokeRect(Math.round(L) + 0.5, Math.round(T) + 0.5, Math.round(R - L) - 1, Math.round(B - T) - 1);
 
       if (this.hoverX != null && this.hoverX >= L && this.hoverX <= R) this._drawHover(gd);
@@ -453,7 +500,8 @@
 
     _drawGrid(gd) {
       const o = this.o, ctx = this.ctx, { L, R, T, B } = this;
-      ctx.strokeStyle = o.grid; ctx.lineWidth = 1;
+      const grid = this._c('grid');
+      ctx.strokeStyle = grid; ctx.lineWidth = 1;
       ctx.beginPath();
       const la = o.axes.left; // a log axis: one line each power of ten, unless hDivisions says otherwise
       const div = o.hDivisions || (la && la.log ? Math.max(1, Math.round(Math.log10(la.max / la.min))) : Math.max(2, Math.round((B - T) / o.hGridPx)));
@@ -489,7 +537,7 @@
         const yz = Math.round(this._y(la.zero)) + 0.5;
         ctx.strokeStyle = la.zeroColor;
         ctx.beginPath(); ctx.moveTo(L, yz); ctx.lineTo(R, yz); ctx.stroke();
-        ctx.strokeStyle = o.grid;
+        ctx.strokeStyle = grid;
       }
     }
 
@@ -499,7 +547,7 @@
       // Legend / title above the plot.
       let x = L;
       if (o.title && !o.titleInside) {
-        ctx.fillStyle = o.titleColor; ctx.textAlign = 'left';
+        ctx.fillStyle = this._c('titleColor'); ctx.textAlign = 'left';
         ctx.fillText(o.title, x, T / 2); x += ctx.measureText(o.title).width + 14;
       }
       if (o.legend) for (const ser of o.series) {
@@ -507,14 +555,14 @@
         ctx.fillText(ser.name, x, T / 2); x += ctx.measureText(ser.name).width + 14;
       }
       if (o.title && o.titleInside) {
-        ctx.fillStyle = o.titleColor; ctx.textAlign = 'left';
+        ctx.fillStyle = this._c('titleColor'); ctx.textAlign = 'left';
         ctx.fillText(o.title, L + 5, T + 9);
       }
       // Axis labels: top, middle, bottom.
       for (const side of ['left', 'right']) {
         const ax = o.axes[side];
         if (!ax || !ax.labels) continue;
-        ctx.fillStyle = ax.color || o.textColor;
+        ctx.fillStyle = ax.color || this._c('textColor');
         ctx.textAlign = side === 'left' ? 'right' : 'left';
         const lx = side === 'left' ? L - 4 : R + 4;
         const mid = ax.log ? Math.sqrt(ax.min * ax.max) : (ax.min + ax.max) / 2;
@@ -524,7 +572,7 @@
       }
       // Footer.
       const val = f => typeof f === 'function' ? f() : f;
-      ctx.fillStyle = o.textColor;
+      ctx.fillStyle = this._c('textColor');
       if (o.footerLeft) { ctx.textAlign = 'left'; ctx.fillText(val(o.footerLeft), L, (B + this.h) / 2 + 1); }
       if (o.footerRight) { ctx.textAlign = 'right'; ctx.fillText(val(o.footerRight), R, (B + this.h) / 2 + 1); }
     }
@@ -545,9 +593,9 @@
       const o = this.o, ctx = this.ctx, { L, R, T, B } = this, x = this.hoverX;
       const units = this._unitsOfX(x), g = gd - units;
       const age = this._T(gd) - this._T(g);  // in seconds, across any change of interval
-      ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1;
+      ctx.strokeStyle = this._c('cursorColor'); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, T); ctx.lineTo(Math.round(x) + 0.5, B); ctx.stroke();
-      const lines = [{ text: formatAge(age), color: '#e6e9ec' }];
+      const lines = [{ text: formatAge(age), color: this._c('tipText') }];
       o.series.forEach((ser, j) => {
         const v = this._valueAt(g, j);
         if (v == null) return;
@@ -561,8 +609,8 @@
       const bw = Math.max(...lines.map(l => ctx.measureText(l.text).width)) + 12, bh = lines.length * 14 + 6;
       let bx = x + 8; if (bx + bw > R) bx = x - 8 - bw; bx = Math.max(L, bx);
       const by = T + 4;
-      ctx.fillStyle = 'rgba(15,17,19,0.92)'; ctx.fillRect(bx, by, bw, bh);
-      ctx.strokeStyle = '#4a5157'; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+      ctx.fillStyle = this._c('tipBackground'); ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = this._c('tipBorder'); ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       lines.forEach((l, i) => { ctx.fillStyle = l.color; ctx.fillText(l.text, bx + 6, by + 10 + i * 14); });
     }

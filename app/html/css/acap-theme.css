@@ -1,15 +1,16 @@
 /*
  * acap-theme.css - shared look for all of these ACAP settings pages.
  *
- * Matches the dark "fluent" look of AXIS Object Analytics and AXIS OS 12:
- * Fluent UI v9 dark neutrals, the Axis yellow brand ramp, Segoe UI.
- * Values taken from AXIS Object Analytics on AXIS OS 12.
- * Copy this file unchanged into each ACAP's html/css folder; page-specific
- * styles go in the ACAP's own app.css.
+ * Matches the "fluent" look of AXIS Object Analytics and AXIS OS 12, dark and light:
+ * Fluent UI v9 neutrals, the Axis yellow brand ramp, Segoe UI.
+ * Dark: values taken from AXIS Object Analytics on AXIS OS 12. Light: Axis's light theme (Fluent web light plus
+ * the Axis overrides), with text and line colours darkened where needed to pass WCAG AA on the light background.
+ * js/theme.js sets data-theme="dark" or "light" on <html> from the camera's theme; without it the page is dark.
+ * Every colour on the page is a token here or in app.css; nothing else names a colour.
  *
  * Header: app name on the left, "Created by Isaac87792" on the right (no Axis logo).
  */
-:root {
+:root, [data-theme="dark"] {
 	color-scheme: dark;
 
 	/* Neutrals (Fluent dark) */
@@ -19,6 +20,7 @@
 	--bg-panel-hover: #3d3d3d;   /* colorNeutralBackground1Hover */
 	--bg-input: #1f1f1f;
 	--bg-subtle-hover: #383838;
+	--bg-sunk: #1a1a1a;          /* wells: the workflow canvas */
 	--stroke: #666666;           /* colorNeutralStroke1 */
 	--stroke-soft: #3d3d3d;      /* colorNeutralStroke2/3 */
 	--text: #ffffff;             /* colorNeutralForeground1 */
@@ -27,25 +29,97 @@
 	--text-4: #999999;           /* colorNeutralForeground4 */
 	--text-disabled: #5c5c5c;
 
-	/* Axis brand ramp */
-	--brand: #ffcc33;            /* brand 100: links, accents, selected tab */
+	/* Axis brand ramp. --brand is the yellow fill (dark text on it); words, edges and links have their own token */
+	--brand: #ffcc33;            /* brand 100: fills (primary button, switch On, selected segment) */
 	--brand-hover: #ffd450;      /* brand 110 */
 	--brand-strong: #fec10c;     /* brand 90 */
 	--brand-dim: #4c381e;        /* brand 40: tinted backgrounds */
-	--on-brand: #1a1a1a;
+	--on-brand: #1a1a1a;         /* text on yellow */
+	--brand-text: #ffcc33;       /* yellow words */
+	--brand-edge: #ffcc33;       /* yellow lines: selected tab, focus ring, On edge */
+	--link: #ffcc33;
+	--link-hover: #ffd450;
 
 	/* Status */
 	--ok: #54b054;
 	--ok-bg: #0d2e0d;
 	--warn: #ffcc33;
+	--wait: #6cb8f6;
 	--danger: #dc626d;
 	--danger-bg: #3b1214;
+	--on-danger: #ffffff;
 
+	/* Series: the camera grey, the apps yellow (fill, line and words), the others */
+	--kit-c-camera: #999999; --kit-c-camera-line: #adadad; --kit-c-total: #d6d6d6;
+	--kit-c-apps: #ffcc33; --kit-c-apps-line: #ffcc33; --kit-c-apps-text: #ffcc33;
+	--kit-c-cache: #5c5c5c; --kit-c-cache-2: #333333; --kit-c-free: #1f1f1f;
+	--kit-c-blue: #3b8eea; --kit-c-amber: #b88400; --kit-c-teal: #2ab3a6; --kit-c-violet: #9d7be6;
+	--kit-c-orange: #f5a623; --kit-c-warn: #e3a008; --kit-c-red: #f0605d; --kit-c-grey: #8a8a8a;
+
+	/* Graph frame */
+	--kit-g-bg: #292929; --kit-g-plot: #1f1f1f; --kit-g-border: #3d3d3d; --kit-g-grid: #333333;
+	--kit-g-text: #adadad; --kit-g-title: #d6d6d6; --kit-g-zero: #4a4a4a; --kit-g-band: rgba(255, 204, 51, 0.13);
+	--kit-g-cursor: rgba(255, 255, 255, 0.45); --kit-g-marker: #ffffff; --kit-g-marker-edge: #000000;
+	--kit-g-tip-bg: rgba(15, 17, 19, 0.92); --kit-g-tip-border: #4a5157; --kit-g-tip-text: #e6e9ec;
+
+	/* Surfaces and depth */
+	--panel-edge: transparent;   /* panels need no edge on dark */
+	--row-hover: #2f2f2f;
+	--pop-bg: #333333;
+	--pop-border: #555555;
+	--grad-panel: linear-gradient(180deg, #2e2e2e, #262626);
+	--grad-tile: linear-gradient(180deg, #323232 0%, #292929 55%, #242424 100%);
+	--tile-on-bg: linear-gradient(180deg, #403312, #2c240c);
+	--shadow: 0 1px 3px rgba(0,0,0,.45), 0 6px 18px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.07);
+	--shadow-lift: 0 3px 6px rgba(0,0,0,.5), 0 12px 28px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.09);
+	--shadow-inset: inset 0 1px 3px rgba(0,0,0,.65);
+	--shadow-header: 0 3px 12px rgba(0,0,0,.4);
+	--shadow-dialog: 0 1px 3px rgba(0,0,0,.45), 0 6px 18px rgba(0,0,0,.32), 0 16px 40px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.07);
+	--shadow-soft: 0 0 2px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
+	--shadow-toast: 0 8px 16px rgba(0,0,0,.5);
+}
+[data-theme="light"] {
+	color-scheme: light;
+
+	--bg-page: #f5f5f5; --bg-header: #fcfcfc; --bg-panel: #ffffff; --bg-panel-hover: #f5f5f5;
+	--bg-input: #ffffff; --bg-subtle-hover: #f0f0f0; --bg-sunk: #f0f0f0;
+	--stroke: #d1d1d1; --stroke-soft: #e0e0e0;
+	--text: #242424; --text-2: #424242; --text-3: #616161; --text-4: #707070; --text-disabled: #bdbdbd;
+
+	--brand: #ffcc33; --brand-hover: #fec10c; --brand-strong: #b07a0f; --brand-dim: #fff4cc; --on-brand: #000000;
+	--brand-text: #8a6100; --brand-edge: #b07a0f;
+	--link: #026690; --link-hover: #014d6c;
+
+	--ok: #107c10; --ok-bg: #dff6dd; --warn: #8a6100; --wait: #0f6cbd; --danger: #c50f1f; --danger-bg: #fdf3f4; --on-danger: #ffffff;
+
+	--kit-c-camera: #767676; --kit-c-camera-line: #707070; --kit-c-total: #424242;
+	--kit-c-apps: #ffcc33; --kit-c-apps-line: #b07a0f; --kit-c-apps-text: #8a6100;
+	--kit-c-cache: #bdbdbd; --kit-c-cache-2: #e6e6e6; --kit-c-free: #e6e6e6;
+	--kit-c-blue: #0f6cbd; --kit-c-amber: #7a4f00; --kit-c-teal: #00827a; --kit-c-violet: #7a4fc9;
+	--kit-c-orange: #c25e00; --kit-c-warn: #9a6700; --kit-c-red: #c50f1f; --kit-c-grey: #767676;
+
+	--kit-g-bg: #ffffff; --kit-g-plot: #fafafa; --kit-g-border: #d1d1d1; --kit-g-grid: #ebebeb;
+	--kit-g-text: #616161; --kit-g-title: #424242; --kit-g-zero: #bdbdbd; --kit-g-band: rgba(255, 204, 51, 0.25);
+	--kit-g-cursor: rgba(0, 0, 0, 0.35); --kit-g-marker: #242424; --kit-g-marker-edge: #ffffff;
+	--kit-g-tip-bg: rgba(255, 255, 255, 0.96); --kit-g-tip-border: #d1d1d1; --kit-g-tip-text: #242424;
+
+	--panel-edge: #e0e0e0; --row-hover: #f5f5f5; --pop-bg: #ffffff; --pop-border: #d1d1d1;
+	--grad-panel: linear-gradient(180deg, #ffffff, #fcfcfc);
+	--grad-tile: linear-gradient(180deg, #ffffff 0%, #fcfcfc 55%, #f7f7f7 100%);
+	--tile-on-bg: linear-gradient(180deg, #fffaeb, #fff1c2);
+	--shadow: 0 1px 2px rgba(0,0,0,.10), 0 4px 14px rgba(0,0,0,.07);
+	--shadow-lift: 0 2px 4px rgba(0,0,0,.12), 0 10px 24px rgba(0,0,0,.12);
+	--shadow-inset: inset 0 1px 2px rgba(0,0,0,.18);
+	--shadow-header: 0 1px 4px rgba(0,0,0,.08);
+	--shadow-dialog: 0 8px 32px rgba(0,0,0,.22), 0 0 0 1px #e0e0e0;
+	--shadow-soft: 0 0 0 1px #e0e0e0, 0 1px 3px rgba(0,0,0,.08);
+	--shadow-toast: 0 6px 16px rgba(0,0,0,.16), 0 0 0 1px #e0e0e0;
+}
+:root {
 	--font: 'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
 	--font-mono: Consolas, 'Courier New', Courier, monospace;
 	--radius: 4px;
 	--radius-large: 8px;
-	--shadow: 0 0 2px rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.4);
 }
 
 * { box-sizing: border-box; }
@@ -58,8 +132,8 @@ html, body {
 	overflow-x: hidden;
 }
 
-a { color: var(--brand); }
-a:hover { color: var(--brand-hover); }
+a { color: var(--link); }
+a:hover { color: var(--link-hover); }
 
 /* Header */
 .acap-header {
@@ -85,9 +159,9 @@ a:hover { color: var(--brand-hover); }
 	font-weight: 600;
 }
 .acap-header .acap-tabs a:hover { color: var(--text); }
-.acap-header .acap-tabs a.active { color: var(--text); border-bottom-color: var(--brand); }
+.acap-header .acap-tabs a.active { color: var(--text); border-bottom-color: var(--brand-edge); }
 .acap-header .acap-credit { margin-left: auto; color: var(--text-3); font-size: 12px; white-space: nowrap; }
-.acap-header .acap-credit strong { color: var(--brand); font-weight: 600; }
+.acap-header .acap-credit strong { color: var(--brand-text); font-weight: 600; }
 
 .acap-main { padding: 20px 24px 48px; }   /* fills the window at any width */
 .acap-lead { color: var(--text-3); margin: 0 0 16px; }
@@ -96,7 +170,7 @@ a:hover { color: var(--brand-hover); }
 .acap-panel {
 	background: var(--bg-panel);
 	border-radius: var(--radius-large);
-	box-shadow: var(--shadow);
+	box-shadow: var(--shadow-soft);
 	padding: 16px 20px;
 	margin-bottom: 16px;
 }
@@ -119,7 +193,7 @@ input[type=text], select {
 	height: 32px;
 }
 input[type=text]:hover, select:hover { border-color: var(--stroke); }
-input[type=text]:focus, select:focus { outline: none; border-bottom: 2px solid var(--brand); padding-bottom: 4px; }
+input[type=text]:focus, select:focus { outline: none; border-bottom: 2px solid var(--brand-edge); padding-bottom: 4px; }
 
 /* Buttons */
 .btn {
@@ -142,7 +216,7 @@ input[type=text]:focus, select:focus { outline: none; border-bottom: 2px solid v
 .btn.primary { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
 .btn.primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
 .btn.primary:disabled { background: var(--brand-dim); border-color: var(--brand-dim); color: var(--text-3); }
-.btn.active { border-color: var(--brand); color: var(--brand); }
+.btn.active { border-color: var(--brand-edge); color: var(--brand-text); }
 .btn.subtle { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn.subtle:hover { background: var(--bg-subtle-hover); color: var(--text); }
 .btn.danger:hover { color: var(--danger); }
@@ -163,7 +237,7 @@ input[type=text]:focus, select:focus { outline: none; border-bottom: 2px solid v
 	background: var(--text-3);
 	transition: transform .15s, background .15s;
 }
-.switch input:checked + .track { background: var(--brand); border-color: var(--brand); }
+.switch input:checked + .track { background: var(--brand); border-color: var(--brand-edge); }
 .switch input:checked + .track::after { transform: translateX(20px); background: var(--on-brand); }
 .switch input:focus-visible + .track { outline: 2px solid var(--text); outline-offset: 2px; }
 .switch .label { color: var(--text-2); }
@@ -181,7 +255,7 @@ table.acap-table tr:last-child td { border-bottom: none; }
 .status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
 .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .status.ok { color: var(--ok); }
-.status.triggered { color: var(--brand); }
+.status.triggered { color: var(--brand-text); }
 .status.idle { color: var(--text-3); }
 .status.error { color: var(--danger); }
 .pill { display: inline-block; padding: 0 8px; border-radius: 10px; font-size: 12px; font-weight: 600; line-height: 20px; }
@@ -195,7 +269,7 @@ table.acap-table tr:last-child td { border-bottom: none; }
 	font: italic 600 11px/1 Georgia, 'Times New Roman', serif;
 	cursor: help; user-select: none;
 }
-.info-i:hover, .info-i:focus-visible { border-color: var(--brand); color: var(--brand); outline: none; }
+.info-i:hover, .info-i:focus-visible { border-color: var(--brand-edge); color: var(--brand-text); outline: none; }
 .mono { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); }
 
 /* Toast */
@@ -206,9 +280,9 @@ table.acap-table tr:last-child td { border-bottom: none; }
 	background: var(--bg-panel);
 	border-left: 4px solid var(--stroke);
 	border-radius: var(--radius);
-	box-shadow: 0 8px 16px rgba(0,0,0,.5);
+	box-shadow: var(--shadow-toast);
 }
 .toast.ok { border-left-color: var(--ok); }
 .toast.bad { border-left-color: var(--danger); }
-.toast.info { border-left-color: var(--brand); }
+.toast.info { border-left-color: var(--brand-edge); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

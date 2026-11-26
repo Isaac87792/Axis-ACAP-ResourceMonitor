@@ -21,11 +21,29 @@ const num = v => (v == null || isNaN(v)) ? NaN : +v;
 	};
 	if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
 })();
-const BRAND = '#ffcc33', TOTAL = '#d6d6d6', RX = '#3b8eea', TX = '#b88400', TEMP = '#f5a623';
-const C = { blue: '#3b8eea', amber: '#b88400', teal: '#2ab3a6', violet: '#9d7be6', warn: '#e3a008', danger: '#f0605d', grey: '#8a8a8a' };
-const PAL = [BRAND, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];       /* one colour per sensor */
-const DRV = [TOTAL, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];      /* one colour per drive */
-const PAIRS = [[C.blue, C.amber], [C.teal, C.violet], [TOTAL, C.warn], [C.grey, C.danger]];   /* read and write, per device */
+/* Colours: every one is a token in css/acap-theme.css or app.css (dark and light). They are read here, and again
+ * whenever js/theme.js changes the page's theme; then every graph is drawn again in the new colours (retheme()). */
+let BRAND, BRAND_FILL, BRAND_TEXT, EDGE, TOTAL, RX, TX, TEMP, BUSY, CAM_LINE, AXIS_TEXT, CURSOR, GRID, GRID2, ZERO, HEAT_BAND, TEMP_FRAME;
+const C = {};
+let PAL = [], DRV = [], PAIRS = [];
+function readColours() {
+	const cs = getComputedStyle(document.documentElement), t = n => cs.getPropertyValue(n).trim();
+	BRAND = t('--kit-c-apps-line');          /* the apps as a line (yellow; darker gold on light) */
+	BRAND_FILL = t('--kit-c-apps');          /* the apps as a fill: always the Axis yellow */
+	BRAND_TEXT = t('--kit-c-apps-text');     /* the apps as words and axis labels */
+	EDGE = t('--brand-edge');
+	TOTAL = t('--kit-c-total'); RX = t('--kit-c-blue'); TX = t('--kit-c-amber'); TEMP = t('--kit-c-orange');
+	BUSY = t('--rm-c-busy'); CAM_LINE = t('--kit-c-camera-line'); AXIS_TEXT = t('--kit-g-text'); CURSOR = t('--rm-cursor');
+	GRID = t('--kit-g-grid'); GRID2 = t('--rm-g-grid-2'); ZERO = t('--kit-g-zero'); HEAT_BAND = t('--kit-g-band');
+	TEMP_FRAME = { border: t('--rm-g-temp-border'), plotBackground: t('--rm-g-temp-plot') };
+	Object.assign(C, { blue: RX, amber: TX, teal: t('--kit-c-teal'), violet: t('--kit-c-violet'), warn: t('--kit-c-warn'), danger: t('--kit-c-red'), grey: t('--kit-c-grey') });
+	PAL = [BRAND, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];       /* one colour per sensor */
+	DRV = [TOTAL, C.blue, C.teal, C.violet, C.amber, C.warn, C.grey, C.danger];       /* one colour per drive */
+	PAIRS = [[C.blue, C.amber], [C.teal, C.violet], [TOTAL, C.warn], [C.grey, C.danger]];   /* read and write, per device */
+}
+readColours();
+/* A line's area fades from this colour: the apps' area is the Axis yellow under their own line colour */
+const fillOf = c => c === BRAND ? BRAND_FILL : c;
 
 /*---------------------------------------------------- formatting */
 function fmtKb(kb) {
@@ -188,7 +206,7 @@ function spec(k, pts) {
 			const s = [L(n.power && n.power.kind === 'ports' ? 'Given out on the ports' : 'Drawing', BRAND, p => p.power)];
 			const ax = { min: 0, max: niceMax(Math.max(5, peak(pts, [s[0].get]) * 1.3)), unit: ' W' };
 			/* 1.5.0: the heater's On periods as faint bands behind the line, so a rise lines up with the heater */
-			if (n.heater) s.unshift(L('Heater on', HEAT_BAND, p => p.heat, { band: true, legendColor: BRAND, tipName: 'Heater', fmt: v => v > 0.5 ? 'On' : 'Off' }));
+			if (n.heater) s.unshift(L('Heater on', HEAT_BAND, p => p.heat, { band: true, legendColor: BRAND_TEXT, tipName: 'Heater', fmt: v => v > 0.5 ? 'On' : 'Off' }));
 			return { axis: ax, fmt: fmtW, series: s };
 		}
 		case 'dlpu': {
@@ -213,7 +231,7 @@ function coreSpec(i) {
 		L('Apps and services (user)', C.blue, p => at2(p, 'coresWork', i, 0), { stack: 1 }), L('System (kernel)', C.amber, p => at2(p, 'coresWork', i, 1), { stack: 1 }),
 		L('Waiting on disk', C.violet, p => at2(p, 'coresWork', i, 2), { stack: 1 }), L('Interrupts', C.teal, p => at2(p, 'coresWork', i, 3), { stack: 1 }),
 		L('Apps', BRAND, p => coreApps(p, i))] };
-	if (view.cpu === 'load') return { axis: ax, fmt: x => fmtPct(x, 0), series: [L('Core busy', '#bdbdbd', p => coreBusy(p, i))] };
+	if (view.cpu === 'load') return { axis: ax, fmt: x => fmtPct(x, 0), series: [L('Core busy', BUSY, p => coreBusy(p, i))] };
 	return { axis: ax, fmt: x => fmtPct(x, 0), series: [L('Apps', BRAND, p => coreApps(p, i), { back: true }), L('Camera, all', TOTAL, p => coreBusy(p, i))] };
 }
 /* A core tile's label: "Core 1 · 64 % · apps 2 %" (and "Mostly system" for Kind of work), or "Core 1 · busy 64 %" for Load */
@@ -255,16 +273,16 @@ function selfApp() { return S.appList.find(a => a.self) || {}; }
 function appsDiskKb() { return S.appList.reduce((a, x) => a + (x.diskKb || 0), 0); }
 
 /*---------------------------------------------------- live graphs */
-const THEME = { background: '#292929', plotBackground: '#1f1f1f', border: '#3d3d3d', grid: '#333333', textColor: '#adadad', titleColor: '#d6d6d6', font: '11px "Segoe UI", sans-serif', interval: 1, across: 60, clock: clock };
-const pctAxis = { left: { min: 0, max: 100, unit: '%', color: '#adadad', labels: true }, right: null };
+/* The graphs' frame colours come from the --kit-g-* tokens (compressing-graph.js reads them itself) */
+const THEME = { font: '11px "Segoe UI", sans-serif', interval: 1, across: 60, clock: clock };
 function cg(el, o) { return new CompressingGraph(el, Object.assign({}, THEME, o)); }
 const LC = {};                                  /* each live graph's current set-up: { sig, sp } */
 function makeGraphs(cores) {
 	const el = k => $('.cg[data-k="' + k + '"]');
 	G = { cores: [] };
 	KEYS.forEach(k => {
-		G[k] = cg(el(k), Object.assign({ hover: false, series: [], axes: pctAxis, footerRight: k === 'cpu' ? () => 'Load average ' + (S.now.load1 != null ? S.now.load1.toFixed(2) : '–') : '' },
-			k === 'temp' ? { border: '#5a4420', plotBackground: '#24201b' } : {}));
+		G[k] = cg(el(k), Object.assign({ hover: false, series: [], axes: { left: { min: 0, max: 100, unit: '%', color: AXIS_TEXT, labels: true }, right: null }, footerRight: k === 'cpu' ? () => 'Load average ' + (S.now.load1 != null ? S.now.load1.toFixed(2) : '–') : '' },
+			k === 'temp' ? Object.assign({}, TEMP_FRAME) : {}));
 		liveHover(G[k], el(k), k, s => valsOf(LC[k] ? LC[k].sp : spec(k), s));
 	});
 	/* Each core: a label above each small graph (two lines for Kind of work), the key above them all, the Load note under them */
@@ -285,7 +303,7 @@ const belowLegend = k => k === 'cpu' || k === 'mem';
 const legendCls = k => 'legend g-legend' + (k === 'mem' || (k === 'cpu' && view.cpu === 'work') ? ' g-col' : '');
 function legendHtml(series) {
 	return series.slice().sort((a, b) => (a.back ? 1 : 0) - (b.back ? 1 : 0)).map(x => '<span class="key"' + (x.color === BRAND && sel === 'cpu' && cpuParent === 'cores' ? ' title="Each thread of these apps is counted on the core it last ran on, so this is close, not exact."' : '') + '>' +
-		(x.band ? '<i class="k-band"></i>' : '<i style="background:' + x.color + '"></i>') + esc(x.name) + '</span>').join('');
+		(x.band ? '<i class="k-band"></i>' : x.color === BRAND ? '<i class="k-app"></i>' : '<i style="background:' + x.color + '"></i>') + esc(x.name) + '</span>').join('');
 }
 function drawLiveLegend() {
 	const el = $('#live-legend');
@@ -302,8 +320,7 @@ function drawLiveLegend() {
 /* Every graph that starts at 0 runs its value axis a little below 0 (and to 102 % at the top of a % axis), with a
    brighter 0 line, so a line at 0 sits on a line of its own above the frame. A log axis keeps its floor (where 0 is
    drawn) a little above the bottom edge, on that line. */
-const ZERO = '#4a4a4a';
-const HEAT_BAND = 'rgba(255, 204, 51, 0.13)';        /* 1.5.0: the heater's On periods behind the power line */
+/* ZERO: the brighter 0 line; HEAT_BAND (1.5.0): the heater's On periods behind the power line (both set in readColours) */
 function plotAxis(ax) {
 	const fmt = v => ax.format ? ax.format(v) : (Math.round(v * 10) / 10) + (ax.unit || '');
 	if (ax.log) return Object.assign({}, ax, { min: ax.min / 1.6, zero: ax.min, zeroColor: ZERO, format: v => fmt(Math.max(v, ax.min)) });
@@ -328,8 +345,8 @@ function syncLive(k) {
 	LC[k] = { sig, sp };
 	const g = G[k];
 	g.clear();
-	g.setOptions({ series: sp.series.map(x => ({ name: x.name, color: x.color, band: !!x.band, legendColor: x.legendColor, axis: x.right ? 'right' : 'left', fmt: x.fmt })), legend: !belowLegend(k), axes: { left: Object.assign({ color: '#adadad', labels: true }, plotAxis(ax)),
-		right: sp.axis2 ? { min: 0, max: sp.axis2.floorMax, auto: true, floorMax: sp.axis2.floorMax, unit: sp.axis2.unit, color: BRAND, labels: true } : null },
+	g.setOptions({ series: sp.series.map(x => ({ name: x.name, color: x.color, fillColor: fillOf(x.color), band: !!x.band, legendColor: x.legendColor || (x.color === BRAND ? BRAND_TEXT : undefined), axis: x.right ? 'right' : 'left', fmt: x.fmt })), legend: !belowLegend(k), axes: { left: Object.assign({ color: AXIS_TEXT, labels: true }, plotAxis(ax)),
+		right: sp.axis2 ? { min: 0, max: sp.axis2.floorMax, auto: true, floorMax: sp.axis2.floorMax, unit: sp.axis2.unit, color: BRAND_TEXT, labels: true } : null },
 		valueFormat: (v, ser) => (ser && ser.fmt ? ser.fmt : sp.fmt)(v), footerLeft: sp.note || (k === 'cpu' ? (S.now.cores || '?') + ' cores' : k === 'mem' ? () => fmtKb(S.now.memTotalKb) + ' in all' : '') });
 	(S.window || []).forEach(s => g.push(liveVals(sp, s), s.t));
 	return true;
@@ -342,7 +359,7 @@ function syncCores() {
 	G.cores.forEach((g, i) => {
 		const sp = coreSpec(i);
 		g.clear();
-		g.setOptions({ series: sp.series.map(x => ({ name: x.name, color: x.color })), valueFormat: v => sp.fmt(v), axes: { left: Object.assign({ labels: false }, plotAxis(sp.axis)), right: null } });
+		g.setOptions({ series: sp.series.map(x => ({ name: x.name, color: x.color, fillColor: fillOf(x.color) })), valueFormat: v => sp.fmt(v), axes: { left: Object.assign({ labels: false }, plotAxis(sp.axis)), right: null } });
 		(S.window || []).forEach(s => g.push(liveVals(sp, s), s.t));
 	});
 	drawLiveLegend();
@@ -426,6 +443,19 @@ function valsOf(sp, p) {
 	return v;
 }
 function clearGraphs() { Object.values(OVG).forEach(o => { if (o.g) o.g.clear(); }); if (!G) return; KEYS.forEach(k => { G[k].clear(); delete LC[k]; }); G.cores.forEach(g => g.clear()); coresSig = ''; }
+
+/* The camera's theme changed (js/theme.js set data-theme on <html>): read the colours again and draw every graph in them */
+function retheme() {
+	readColours();
+	if (G) {
+		G.temp.setOptions(Object.assign({}, TEMP_FRAME));
+		KEYS.forEach(k => { delete LC[k]; syncLive(k); });
+		coresSig = ''; syncCores();
+	}
+	if (tab === 'overview') drawOverview();
+	if (tab === 'perf') { drawExtra(); if (range === 'live') drawLiveLegend(); else if (hist) drawHist(true); }   /* pins kept */
+}
+new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 /* Readings older than 5 s: the app is restarting, being updated, or the camera is very busy */
 function checkStale() {
@@ -613,7 +643,7 @@ function whenTxt(t) { const d = new Date(t * 1000), today = new Date().toDateStr
 function sparkOnOff(vals) {
 	const W = 200, H = 28, n = vals.length, w = n ? W / n : W;
 	let r = '';
-	vals.forEach((v, i) => { if (v != null && v > 0.5) r += '<rect x="' + (i * w).toFixed(1) + '" y="4" width="' + (w + 0.3).toFixed(1) + '" height="' + (H - 6) + '" fill="' + BRAND + '" fill-opacity=".75"/>'; });
+	vals.forEach((v, i) => { if (v != null && v > 0.5) r += '<rect x="' + (i * w).toFixed(1) + '" y="4" width="' + (w + 0.3).toFixed(1) + '" height="' + (H - 6) + '" fill="' + BRAND_FILL + '" fill-opacity=".75"/>'; });
 	return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><line x1="0" x2="' + W + '" y1="' + (H - 2) + '" y2="' + (H - 2) + '" stroke="' + ZERO + '" vector-effect="non-scaling-stroke"/>' + r + '</svg>';
 }
 function compBar(title, parts, fmt) {
@@ -765,8 +795,8 @@ function histSvg(sp, P, X, W, H) {
 	const Y = v => (H - 3) * (1 - clamp(lg ? (Math.log10(Math.max(ax.min, v)) - l0) / (l1 - l0) : (v - pa.min) / (pa.max - pa.min), 0, 1));
 	const a2 = sp.axis2, Y2 = a2 ? v => (H - 3) * (1 - clamp((v + a2.max * 0.02) / (a2.max * 1.02), 0, 1)) : Y, YS = x => x.right ? Y2 : Y;
 	let g = '';
-	for (let q = 1; q < 4; q++) g += '<line x1="0" x2="' + W + '" y1="' + H * q / 4 + '" y2="' + H * q / 4 + '" stroke="#333"/>';
-	for (let x = 1; x < 6; x++) g += '<line y1="0" y2="' + H + '" x1="' + W * x / 6 + '" x2="' + W * x / 6 + '" stroke="#2b2b2b"/>';
+	for (let q = 1; q < 4; q++) g += '<line x1="0" x2="' + W + '" y1="' + H * q / 4 + '" y2="' + H * q / 4 + '" stroke="' + GRID + '"/>';
+	for (let x = 1; x < 6; x++) g += '<line y1="0" y2="' + H + '" x1="' + W * x / 6 + '" x2="' + W * x / 6 + '" stroke="' + GRID2 + '"/>';
 	/* 1.5.0: band series (the heater's On periods): a shaded strip over each point whose value is over 0.5 */
 	sp.series.filter(x => x.band).forEach(x => {
 		const dt = P.length > 1 ? P[1].t - P[0].t : 10;
@@ -796,7 +826,7 @@ function histSvg(sp, P, X, W, H) {
 	let defs = '';
 	lines.forEach((x, n) => {
 		const id = 'hf' + (++histSvg.n) + '-' + n;
-		defs += '<linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + x.color + '" stop-opacity="' + fa + '"/><stop offset="1" stop-color="' + x.color + '" stop-opacity="0.02"/></linearGradient>';
+		defs += '<linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + fillOf(x.color) + '" stop-opacity="' + fa + '"/><stop offset="1" stop-color="' + fillOf(x.color) + '" stop-opacity="0.02"/></linearGradient>';
 		let run = [];
 		const flush = () => { if (run.length > 1) g += '<path d="M' + run.map(q => q[0] + ' ' + q[1]).join(' L') + ' L' + run[run.length - 1][0] + ' ' + H + ' L' + run[0][0] + ' ' + H + ' Z" fill="url(#' + id + ')" stroke="none"/>'; run = []; };
 		const Yx = YS(x);
@@ -808,20 +838,21 @@ function histSvg(sp, P, X, W, H) {
 		let d = '', pen = false;
 		const Yx = YS(x);
 		P.forEach(p => { const v = x.get(p); if (v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + X(p.t).toFixed(1) + ' ' + Yx(v).toFixed(1) + ' '; pen = true; });
-		g += '<path d="' + d + '" fill="none" stroke="' + x.color + '" stroke-width="' + (x.color === BRAND ? 2 : 1.6) + ' stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+		g += '<path d="' + d + '" fill="none" stroke="' + x.color + '" stroke-width="' + (x.color === BRAND ? 2 : 1.6) + '" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
 	});
-	g += '<line class="hl" y1="0" y2="' + H + '" stroke="#adadad" vector-effect="non-scaling-stroke" visibility="hidden"/>';
+	g += '<line class="hl" y1="0" y2="' + H + '" stroke="' + CURSOR + '" vector-effect="non-scaling-stroke" visibility="hidden"/>';
 	return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">' + g + '</svg>';
 }
 /* Hover on a history graph: the graph's own values and the top 10 then. pin: { get(), set(i) } (the main graph's pin is kept
    across refreshes; each core tile has its own). */
+/* Returns reshow(i, y): shows moment i again, its tooltip at height y (a pinned moment, after the graph was drawn again) */
 function histHover(box, svg, sp, P, X, W, t0, secs, tEnd, kind, usualOf, pin, onPoint, owner) {      /* onPoint(point): the moment pointed at, or null */
 	const tip = makeTip(owner || 'hist');
 	let lastY = 0;
 	function show(i) {
 		const p = P[i], x = X(p.t), hl = $('.hl', svg), r = svg.getBoundingClientRect();
 		hl.setAttribute('x1', x); hl.setAttribute('x2', x); hl.setAttribute('visibility', 'visible');
-		hl.setAttribute('stroke', pin.get() !== null ? BRAND : '#adadad');
+		hl.setAttribute('stroke', pin.get() !== null ? EDGE : CURSOR);
 		tip.innerHTML = topTipHtml({ t: p.t, ago: tEnd - p.t, pinned: pin.get() !== null, vals: valsOf(sp, p), title: kind.title, top: p[kind.list] || [], other: p[kind.other], usualOf, isMem: kind.isMem, isNet: kind.isNet, isIo: kind.isIo, none: kind.none, fmtv: kind.fmtv });
 		if (onPoint) onPoint(p);
 		tip.hidden = false;
@@ -836,9 +867,15 @@ function histHover(box, svg, sp, P, X, W, t0, secs, tEnd, kind, usualOf, pin, on
 	svg.onmousemove = e => { if (pin.get() === null) { lastY = e.clientY; show(idxAt(e)); } };
 	svg.onclick = e => { lastY = e.clientY; pin.set(pin.get() === null ? idxAt(e) : null); show(pin.get() === null ? idxAt(e) : pin.get()); };
 	svg.onmouseleave = () => { if (pin.get() === null) { if (onPoint) onPoint(null); $('.hl', svg).setAttribute('visibility', 'hidden'); tip.hidden = true; } };
+	return (i, y) => { lastY = y; show(i); };
 }
-function drawHist() {
+/* keepPins (a change of theme): the same points drawn again, so a pinned moment stays pinned where it was; otherwise
+   (new points) each core tile starts unpinned, as before */
+const corePins = [];
+function pinTipY(owner) { const t = $('.ftip[data-owner="' + owner + '"]'); return t && !t.hidden ? +t.dataset.y || 0 : 0; }
+function drawHist(keepPins) {
 	const box = $('#hist');
+	if (!keepPins) corePins.length = 0;
 	if (!hist || !hist.points.length) { box.innerHTML = '<div class="empty-note">No history yet: the first point is kept 10 seconds after Resource Monitor starts.</div>'; return; }
 	const W = 800, P = hist.points, secs = hist.seconds, tEnd = clock(), t0 = tEnd - secs;
 	const X = t => clamp((t - t0) / secs * W, 0, W);
@@ -857,8 +894,9 @@ function drawHist() {
 			'<div class="' + legendCls('cpu') + '">' + legendHtml(coreSpec(0).series) + '</div>' +
 			foot(view.cpu === 'work' ? 'Stacked per core: the top edge is that core in use. ' : '');
 		$$('.hist-cores .hc', box).forEach((hc, i) => {
-			let pin = null;
-			histHover(hc, $('svg', hc), coreSpec(i), P, X, W, t0, secs, tEnd, kind, usualOf, { get: () => pin, set: v => { pin = v; } }, null, 'hist-core-' + i);
+			const owner = 'hist-core-' + i, y = pinTipY(owner), pin = corePins[i] != null && P[corePins[i]] ? corePins[i] : (corePins[i] = null);
+			const reshow = histHover(hc, $('svg', hc), coreSpec(i), P, X, W, t0, secs, tEnd, kind, usualOf, { get: () => corePins[i], set: v => { corePins[i] = v; } }, null, owner);
+			if (pin !== null) reshow(pin, y);
 		});
 		return;
 	}
@@ -868,7 +906,10 @@ function drawHist() {
 	const below = belowLegend(sel);
 	box.innerHTML = '<div class="chart-label"><span class="hist-keys">' + (below ? '' : legendHtml(sp.series)) + '</span><span class="hist-max">' + esc(axTxt(ax.max)) + (lg ? ' (each line down is 10 times less)' : '') + (sp.axis2 ? ' · <span class="ax2">apps scale ' + esc((Math.round(sp.axis2.max * 10) / 10) + (sp.axis2.unit === '%' ? ' %' : sp.axis2.unit)) + '</span>' : '') + '</span></div>' +
 		histSvg(sp, P, X, W, 280) + (below ? '<div class="' + legendCls(sel) + '">' + legendHtml(sp.series) + '</div>' : '') + foot(kindNote);
-	histHover(box, $('svg', box), sp, P, X, W, t0, secs, tEnd, kind, usualOf, { get: () => pinned, set: v => { pinned = v; } }, null, 'hist');
+	const y = pinTipY('hist');
+	if (pinned !== null && !P[pinned]) pinned = null;
+	const reshow = histHover(box, $('svg', box), sp, P, X, W, t0, secs, tEnd, kind, usualOf, { get: () => pinned, set: v => { pinned = v; } }, null, 'hist');
+	if (keepPins && pinned !== null) reshow(pinned, y);
 }
 
 /*---------------------------------------------------- Processes */
@@ -996,7 +1037,7 @@ function mountSparks() {
 		o.sig = sig;
 	});
 }
-function ovSeries(o) { return o.lines.map(l => ({ name: l[0], color: l[1], axis: l[3] ? 'right' : 'left' })); }
+function ovSeries(o) { return o.lines.map(l => ({ name: l[0], color: l[1], fillColor: fillOf(l[1]), axis: l[3] ? 'right' : 'left' })); }
 function ovVal(o, s) { return o.lines.map(l => { const v = l[2](s); return v == null || isNaN(v) ? null : v; }); }
 function feedSparks(smp) { Object.values(OVG).forEach(o => { if (o.g) smp.forEach(s => o.g.push(ovVal(o, s), s.t)); }); }
 /* 1.5.0: a tile per resource (opens its page, as the sidebar does), status chips, and the biggest users now */
@@ -1012,12 +1053,12 @@ function drawOverview() {
 	if (shown(GB.cpu)) {
 		const v = okv(col(p => p.cpu)), cam = Math.max(0, num(s.cpu) - num(n.appsCpu));
 		tiles.push(tile('cpu', 'CPU', fmtPct(s.cpu, 0), (v.length ? 'Last hour: peak ' + fmtPct(Math.max(...v), 0) + ' · avg ' + fmtPct(avg(v), 0) + ' · ' : '') + (n.cores || '?') + ' cores' + (n.mhz ? ' at ' + Math.round(n.mhz) + ' MHz' : ''),
-			liveSpark('cpu', [['Apps', BRAND, p => p.apps, 1], ['Camera', '#adadad', p => p.cpu]], { min: 0, max: 100 }), share('CPU: the camera and apps', cam, n.appsCpu, fmtPct(cam, 0), fmtPct(n.appsCpu, 1))));
+			liveSpark('cpu', [['Apps', BRAND, p => p.apps, 1], ['Camera', CAM_LINE, p => p.cpu]], { min: 0, max: 100 }), share('CPU: the camera and apps', cam, n.appsCpu, fmtPct(cam, 0), fmtPct(n.appsCpu, 1))));
 	}
 	if (shown(GB.mem)) {
 		const used = n.memTotalKb - n.memAvailKb, cam = Math.max(0, used - num(n.appsMemKb)), pc = kb => 100 * kb / n.memTotalKb;
 		tiles.push(tile('mem', 'Memory', fmtPct(s.mem, 0), fmtKb(used) + ' of ' + fmtKb(n.memTotalKb) + (n.videoTotalKb ? ' · video memory ' + fmtPct(100 * n.videoUsedKb / n.videoTotalKb, 0) : ''),
-			liveSpark('mem', p => p.mem, { min: 0, max: 100 }, '#adadad'), share('Memory: the camera and apps', pc(cam), pc(n.appsMemKb), fmtPct(pc(cam), 0), fmtPct(pc(n.appsMemKb), 1))));
+			liveSpark('mem', p => p.mem, { min: 0, max: 100 }, CAM_LINE), share('Memory: the camera and apps', pc(cam), pc(n.appsMemKb), fmtPct(pc(cam), 0), fmtPct(pc(n.appsMemKb), 1))));
 	}
 	if (shown(GB.flash)) {
 		const dk = f && f.disk >= 0 ? (n.disks || [])[f.disk] : null;
@@ -1911,7 +1952,7 @@ function ctxClose(keep) {
 }
 
 /* Workflow: the chosen alert drawn as a flowchart. When > above/below? > lasts > Send > Off */
-const WF_COL = { when: '#e8892c', decide: '#d6a51c', flow: '#6b6b73', do: '#2f7fd0', end: '#4a4a52' };
+const WF_COL = { when: 'var(--rm-wf-when)', decide: 'var(--rm-wf-decide)', flow: 'var(--rm-wf-flow)', do: 'var(--rm-wf-do)', end: 'var(--rm-wf-end)' };   /* tokens in app.css */
 const trunc = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 function alLastOn(a) {
 	const l = (AL.data.log || []).filter(x => x.id === a.id);
@@ -1949,10 +1990,10 @@ function alWfChart(a) {
 	const nodes = N.map(([id, sh, k, x, y, wd, h, t1, t2]) => {
 		let shape, tx, ty, tk;
 		if (sh === 'dia') {
-			shape = '<polygon points="' + x + ',' + (y - 35) + ' ' + (x + 52) + ',' + y + ' ' + x + ',' + (y + 35) + ' ' + (x - 52) + ',' + y + '" fill="' + WF_COL[k] + '"/>';
+			shape = '<polygon points="' + x + ',' + (y - 35) + ' ' + (x + 52) + ',' + y + ' ' + x + ',' + (y + 35) + ' ' + (x - 52) + ',' + y + '" style="fill:' + WF_COL[k] + '"/>';
 			tx = x; ty = y + (t2 ? -4 : 4); tk = [x + 34, y - 30];
 		} else {
-			shape = '<rect x="' + x + '" y="' + y + '" width="' + wd + '" height="' + h + '" rx="' + (sh === 'pill' ? h / 2 : 8) + '" fill="' + WF_COL[k] + '"/>';
+			shape = '<rect x="' + x + '" y="' + y + '" width="' + wd + '" height="' + h + '" rx="' + (sh === 'pill' ? h / 2 : 8) + '" style="fill:' + WF_COL[k] + '"/>';
 			tx = x + wd / 2; ty = y + h / 2 + (t2 ? -4 : 4); tk = [x + wd - 4, y + 4];
 		}
 		const hit = reached && reached.indexOf(id) >= 0;
@@ -1964,7 +2005,7 @@ function alWfChart(a) {
 	}).join('');
 	const wires = W.map(x => '<path class="wire" d="' + x[0] + '" marker-end="url(#al-ar)"/>' + (x[1] ? '<text class="w" x="' + x[2] + '" y="' + x[3] + '"' + (x[4] ? ' text-anchor="middle"' : '') + '>' + x[1] + '</text>' : '')).join('');
 	return '<svg viewBox="0 0 410 ' + height + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Workflow of the alert ' + esc(a.name) + '">' +
-		'<defs><marker id="al-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#888"/></marker></defs>' + wires + nodes + '</svg>';
+		'<defs><marker id="al-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>' + wires + nodes + '</svg>';
 }
 function alWfProps(a) {
 	const st = a.status || {}, m = alMetric(a.metric), f = +a.for || 0, c = a.context && a.context.text, to = alTo(a);
