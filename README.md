@@ -25,7 +25,7 @@ One page with a live tile per resource (each opens its own page), status chips f
 | **CPU** | Overall or per core; usage, kind of work (apps, system, waiting on disk) and load average; clock speed |
 | **Memory** | Used, free and video memory; biggest users |
 | **Storage** | Built-in flash and SD card: space, activity, health and wear, and which apps store data on each drive |
-| **Network** | Traffic per interface, errors, and every connection: who is watching which stream, with the bytes of each TCP connection |
+| **Network** | Traffic per interface (the sidebar shows out ↑ and in ↓ apart), errors, and every connection: who is watching which stream, with the bytes of each TCP connection; with the Port Testing app, round trip and loss to other devices |
 | **Temperature** | Every sensor the camera reports, and the heater state; shown in °C or °F |
 | **Power** | Live draw and PoE class, with 7 and 30 day history from the camera's own power log |
 | **AI chip** | Deep-learning processor activity, on cameras that have one |
@@ -44,6 +44,13 @@ Who is connected to the camera and what they are pulling: each video, audio and 
 
 ![Network connections: streams, players and traffic](docs/screenshots/net-conns.png)
 
+### Links to other devices
+When the Port Testing app is installed and running on the same camera, Resource Monitor reads its links about every 5 seconds:
+- **Round trip** and **Link loss** views on the Network page, one line per device, live and in history (1 h and 24 h), with each device's round trip now and its 95th percentile, its loss, refused connections and the matches of the last 24 hours.
+- **Matches on the graphs:** each Pong, Battleship or port check shows as a light band labelled with the game and device on every Network graph, so you can see the traffic a match caused.
+
+While Port Testing is missing or stopped, nothing extra is read or shown.
+
 ### Apps
 Every installed app with its version, status, size on flash and how long it has been running. Start, Stop and Restart (administrators only) ask first and are written to the app log with who did it and when. Changes made outside Resource Monitor are logged too.
 
@@ -58,6 +65,8 @@ An alert is a reading past its limit for a set time, for example "CPU above 90 %
 
 Every alert has a Test button (sends On, then Off 3 seconds later) and its own log of what happened and exactly what was sent.
 
+With the Port Testing app running, an alert can also watch **Link round trip** (ms) or **Link loss** (%) to one device or to any device; its Context can name the device with `{device}`. While Port Testing is not running, such an alert waits and sends nothing.
+
 - **Your own message:** each alert can send its own Context text, built from fields such as `{value}`, `{limit}`, `{unit}`, `{alert}`, `{state}`, `{count}` and `{camera}`, with simple formulas, for example `{alert} #{count} on {camera}: {value} {unit}`. The editor shows what the next alert would send. Without one, it sends the reading and the limit.
 - **Workflow view:** each alert drawn as a flowchart (reading, limit, how long, where it goes), with the steps its last alarm reached.
 - **Copy settings to other cameras:** on the Settings tab, export the settings, alerts and send-out setup you choose to a file, and import it on other cameras with Replace or Merge, a preview first and Undo after. Passwords and tokens are never in the file.
@@ -71,7 +80,7 @@ Every alert has a Test button (sends On, then Off 3 seconds later) and its own l
 - **MQTT:** one JSON message per group (`…/cpu`, `…/memory`, …) plus an availability topic, with TLS, your own CA and Home Assistant discovery (about 15 sensors appear on their own).
 - **InfluxDB:** 1.x or 2.x, with TLS and your own CA; a round that can't be sent is kept and retried.
 
-Sending is off until you turn it on, and you choose per metric what is shown and what is sent.
+Sending is off until you turn it on, and you choose per metric what is shown and what is sent. Links to other devices go out as `resource_monitor_link_rtt_ms`, `resource_monitor_link_rtt_p95_ms` and `resource_monitor_link_loss_percent`, each labelled with the device.
 
 ![Settings: display, power, history, send out and what to collect](docs/screenshots/settings.png)
 
