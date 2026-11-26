@@ -1852,11 +1852,11 @@ function drawAlerts() {
 	$$('#tab-alerts .admin-hint').forEach(h => { h.hidden = admin; });
 	$('#al-rows').innerHTML = AL.data.alerts.length ? AL.data.alerts.map(a => {
 		const to = alTo(a), ways = AL_TO.filter(t => to[t[0]]);
-		const toTxt = ways.length ? ways.map(t => alOff(t[0]) ? '<span class="off" title="' + esc(AL_OFF[t[0]] + ': nothing goes out until it is on') + '">' + t[1] + ' (off in Settings)</span>' : t[1]).join(', ') : '<span class="off">Nowhere</span>';
+		const toTxt = ways.length ? ways.map(t => alOff(t[0]) ? '<span class="off" title="' + esc(AL_OFF[t[0]] + ': nothing goes out until it is on') + '">' + t[1] + '</span>' : t[1]).join(', ') : '<span class="off">Nowhere</span>';
 		const topic = a.status && a.status.topic;
 		return '<tr data-id="' + esc(a.id) + '"' + (a.on ? '' : ' class="al-off"') + '>' +
 			'<td data-l="On"><label class="switch" title="' + (a.on ? 'Enabled' : 'Disabled') + '"><input type="checkbox" data-f="on"' + (a.on ? ' checked' : '') + dis + ' aria-label="Enabled"><span class="track"></span></label></td>' +
-			'<td data-l="Alert"><div class="al-nm"' + (topic ? ' title="' + esc('Event: Resource Monitor › ' + a.name + '\nTopic: ' + topic) + '"' : '') + '>' + esc(a.name || '(no name)') + '</div><div class="al-rule">' + esc(alRule(a)) + '</div>' + (a.context && a.context.text ? '<div class="al-ctx" title="Context">' + esc(a.context.text) + '</div>' : '') + '</td>' +
+			'<td data-l="Alert"><div class="al-nm"' + (topic ? ' title="' + esc('Event: Resource Monitor › ' + a.name + '\nTopic: ' + topic) + '"' : '') + '>' + esc(a.name || '(no name)') + '</div><div class="al-rule">' + esc(alRule(a)) + '</div><div class="al-src">' + alSrc(a.metric, false) + '</div>' + (a.context && a.context.text ? '<div class="al-ctx" title="Context">' + esc(a.context.text) + '</div>' : '') + '</td>' +
 			'<td data-l="Send to" class="al-to-txt">' + toTxt + '</td>' +
 			'<td data-l="Status">' + alStatusHtml(a) + '</td>' +
 			'<td data-l=""><div class="row-actions"><button type="button" class="btn" data-a="test"' + (op && a.on ? ' title="Sends it On, then Off 3 s later, to each Send to (for real)"' : ' disabled title="' + (a.on ? 'Operators and admins' : 'Turn it on first') + '"') + '>Test</button>' +
@@ -1871,8 +1871,12 @@ function alEdit(a) {
 	$('#ae-name').value = e.name || '';
 	/* 1.9.0: the link metrics are offered while Port Testing runs (an alert that already watches one keeps it) */
 	const ptOn = !!AL.data && AL.data.portTesting === 'running';
-	$('#ae-metric').innerHTML = ((AL.data && AL.data.metrics) || []).filter(m => m.group !== GB.links || ptOn || m.key === e.metric)
-		.map(m => '<option value="' + m.key + '"' + (m.key === e.metric ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('');
+	/* 1.9.2: grouped by where the reading comes from: the camera itself, or another app */
+	const opt = m => '<option value="' + m.key + '"' + (m.key === e.metric ? ' selected' : '') + '>' + esc(m.name) + '</option>';
+	const mets = ((AL.data && AL.data.metrics) || []).filter(m => m.group !== GB.links || ptOn || m.key === e.metric);
+	const camM = mets.filter(m => m.group !== GB.links), appM = mets.filter(m => m.group === GB.links);
+	$('#ae-metric').innerHTML = '<optgroup label="From the camera">' + camM.map(opt).join('') + '</optgroup>' +
+		(appM.length ? '<optgroup label="From the Port Testing app">' + appM.map(opt).join('') + '</optgroup>' : '');
 	alDevRow(e.device != null ? e.device : (AL.data && AL.data.linkDevices || [])[0] || '');
 	$('#ae-op').value = e.op === 'below' ? 'below' : 'above';
 	$('#ae-value').value = e.value == null ? '' : e.value;
@@ -1880,7 +1884,7 @@ function alEdit(a) {
 	$('#ae-for').value = mins ? f / 60 : f; $('#ae-forunit').value = mins ? '60' : '1';
 	const to = alTo(e);
 	$('#ae-to').innerHTML = '<div class="al-to" role="group" aria-label="Send to">' + AL_TO.map(t => '<button type="button" class="to-chip' + (to[t[0]] ? ' on' : '') + (alOff(t[0]) ? ' off-set' : '') + '" data-to="' + t[0] + '" aria-pressed="' + to[t[0]] + '"' +
-		(alOff(t[0]) ? ' title="' + esc(AL_OFF[t[0]] + ': nothing goes out until it is on') + '"' : '') + '>' + t[1] + (alOff(t[0]) ? ' (off in Settings)' : '') + '</button>').join('') + '</div>';
+		(alOff(t[0]) ? ' title="' + esc(AL_OFF[t[0]] + ': nothing goes out until it is on') + '"' : '') + '>' + t[1] + '</button>').join('') + '</div>';
 	$('#ae-on').checked = e.on !== false;
 	AL.ctx = e.context && e.context.text ? Object.assign({}, e.context) : null;   /* 1.6.3: kept until Save */
 	alCtxRow();
@@ -1902,8 +1906,19 @@ function alDevRow(pick) {
 	sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('') + '<option value="">Any device</option>';
 	sel.value = was != null && (was === '' || names.includes(was)) ? was : names.length ? names[0] : '';
 }
+/* 1.9.2: where an alert's reading comes from, as a small label: the camera (and what it reads), or the Port Testing app and its state */
+const SRC_READ = { 1: 'cpu', 2: 'mem', 4: 'storage', 8: 'net', 16: 'temp', 32: 'power', 64: 'dlpu' };
+function alSrc(k, detail) {
+	if (alIsLink(k)) {
+		const st = (AL.data && AL.data.portTesting) || 'missing', w = st === 'running' ? 'running' : st === 'stopped' ? 'stopped' : 'not installed';
+		return '<span class="src-tag app' + (st === 'running' ? ' run' : '') + '"><i></i>From the Port Testing app · ' + w + '</span>';
+	}
+	const g = GROUPS.find(x => x[0] === SRC_READ[alMetric(k).group]);
+	return '<span class="src-tag"><i></i>From the camera' + (detail && g ? ' · ' + esc(g[2]) : '') + '</span>';
+}
 function alNowHint() {
 	const k = $('#ae-metric').value;
+	$('#ae-src').innerHTML = alSrc(k, true);
 	if (alIsLink(k)) {                                         /* 1.9.0: the device's value now, from Port Testing */
 		const dn = $('#ae-device').value, ds = linkDevs().filter(d => d.current && (!dn || d.name === dn)), f = k === 'linkloss' ? 'loss' : 'rtt';
 		const vals = ds.map(d => num(d[f])).filter(v => !isNaN(v));

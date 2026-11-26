@@ -464,6 +464,14 @@ html, body { overflow-x: clip; }
 /* 1.6.1 Alerts: one plain line per alert, editing in a dialog */
 .al-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .al-head h2 { margin-right: auto; }
 .al-nm { font-weight: 600; overflow-wrap: anywhere; } .al-rule { color: var(--text-3); font-size: 12.5px; }
+/* 1.9.2: where an alert's reading comes from: "From the camera" or "From the Port Testing app · running" */
+.al-src { margin-top: 3px; }
+.al-src-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; }
+.src-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); border: 1px solid var(--stroke); border-radius: 12px; padding: 0 9px 0 7px; line-height: 20px; max-width: 100%; overflow-wrap: anywhere; }
+.src-tag i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); flex: none; }
+.src-tag.app i { background: var(--brand); }
+.src-tag.app:not(.run) { color: var(--text-3); }
+.src-tag.app:not(.run) i { background: var(--text-4); }
 .al-table tr.al-off .al-nm, .al-table tr.al-off .al-rule, .al-table tr.al-off .al-to-txt { color: var(--text-4); }
 .al-to-txt .off { color: var(--kit-c-warn); }
 .al-foot { margin: 8px 0 0; }
